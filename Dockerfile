@@ -25,7 +25,7 @@ WORKDIR /tmp
 RUN wget https://github.com/ta-lib/ta-lib/archive/refs/tags/v0.6.4.tar.gz \
     && tar -xzf v0.6.4.tar.gz \
     && cd ta-lib-0.6.4 \
-    && autoreconf -fi \  # Generate the configure script
+    && autoreconf -fi \  # Generate the configure script\
     && ./configure --prefix=/usr \
     && make \
     && make install \
