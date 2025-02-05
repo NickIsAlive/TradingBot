@@ -72,10 +72,24 @@ APP_ID=$(doctl apps list --format ID,Spec.Name --no-header | grep trading-bot | 
 
 if [ -n "$APP_ID" ]; then
     echo "🔄 Updating existing app (ID: $APP_ID)..."
+    
+    # Update secrets
+    echo "🔐 Updating secrets..."
+    doctl apps update $APP_ID --set-secret ALPACA_API_KEY="$ALPACA_API_KEY"
+    doctl apps update $APP_ID --set-secret ALPACA_SECRET_KEY="$ALPACA_SECRET_KEY"
+    doctl apps update $APP_ID --set-secret TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+    doctl apps update $APP_ID --set-secret TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID"
+    
+    # Update app specification
     doctl apps update $APP_ID --spec .do/app.yaml
 else
     echo "🆕 Creating new app..."
-    doctl apps create --spec .do/app.yaml
+    # Create app with initial secrets
+    doctl apps create --spec .do/app.yaml \
+        --set-secret ALPACA_API_KEY="$ALPACA_API_KEY" \
+        --set-secret ALPACA_SECRET_KEY="$ALPACA_SECRET_KEY" \
+        --set-secret TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
+        --set-secret TELEGRAM_CHAT_ID="$TELEGRAM_CHAT_ID"
 fi
 
 echo "✅ Deployment initiated!"
