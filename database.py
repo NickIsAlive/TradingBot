@@ -66,6 +66,28 @@ class TradingDatabase:
                 logger.info("Socket connection successful")
             except socket.error as socket_error:
                 logger.error(f"Socket connection failed: {socket_error}")
+                # Additional network diagnostics
+                try:
+                    import subprocess
+                    
+                    # Try to ping the host
+                    ping_result = subprocess.run(
+                        ['ping', '-c', '4', ipv4_address], 
+                        capture_output=True, 
+                        text=True
+                    )
+                    logger.info(f"Ping result: {ping_result.stdout}")
+                    
+                    # Try to resolve DNS
+                    nslookup_result = subprocess.run(
+                        ['nslookup', ipv4_address], 
+                        capture_output=True, 
+                        text=True
+                    )
+                    logger.info(f"DNS lookup result: {nslookup_result.stdout}")
+                except Exception as diag_error:
+                    logger.error(f"Additional network diagnostics failed: {diag_error}")
+                
                 raise
 
             # Log connection details (be careful with sensitive info)
