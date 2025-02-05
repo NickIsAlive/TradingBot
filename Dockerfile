@@ -6,7 +6,7 @@ FROM --platform=linux/amd64 ubuntu:22.04 AS builder
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install required system dependencies
+# Install required system dependencies, including wget
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libgomp1 \
     curl \
+    wget \
     git \
     unzip \
     autoconf \
@@ -60,12 +61,13 @@ FROM --platform=linux/amd64 ubuntu:22.04
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install runtime dependencies
+# Install runtime dependencies, including wget
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \
     libgomp1 \
     curl \
+    wget \
     git \
     unzip \
     && rm -rf /var/lib/apt/lists/*
