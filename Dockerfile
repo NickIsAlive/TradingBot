@@ -24,11 +24,8 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && make \
     && make install \
     && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz
-
-# Update library cache and set up environment
-ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
-RUN ldconfig
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/ \
+    && ldconfig
 
 # Create and activate virtual environment
 RUN python3 -m pip install --upgrade pip \
@@ -36,13 +33,12 @@ RUN python3 -m pip install --upgrade pip \
     && python3 -m virtualenv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install Python packages
+# Install Python packages with specific numpy version
 COPY requirements.txt .
-# Define NumPy API version to avoid deprecation warning
-ENV CFLAGS="-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"
-RUN pip install --no-cache-dir wheel setuptools numpy \
+RUN pip install --no-cache-dir wheel setuptools \
+    && pip install --no-cache-dir numpy==1.26.4 \
     && pip install --no-cache-dir -r requirements.txt \
-    && pip install --global-option=build_ext --global-option="-L/usr/lib/" --global-option="-L/usr/local/lib/" ta-lib
+    && pip install --no-cache-dir ta-lib==0.4.28
 
 # Final stage
 FROM --platform=linux/amd64 ubuntu:22.04
@@ -69,12 +65,11 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && make \
     && make install \
     && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/ \
+    && ldconfig
 
-# Set up environment and update library cache
+# Set up environment
 ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
-ENV CFLAGS="-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"
-RUN ldconfig
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
