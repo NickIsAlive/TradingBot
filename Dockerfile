@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libgomp1 \
     wget \
+    autoconf \
     && rm -rf /var/lib/apt/lists/*
 
 # Install TA-Lib from source
@@ -25,6 +26,7 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && cd ta-lib/ \
     && sed -i.bak "s|0.00000001|0.000000001|g" src/ta_func/ta_utility.h \
     && sed -i.bak '/tools/d' configure \
+    && autoreconf -fi \
     && CFLAGS="-fPIC" ./configure --prefix=/usr \
     && make -j$(nproc) \
     && make install \
