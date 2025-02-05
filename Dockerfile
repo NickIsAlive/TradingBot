@@ -20,22 +20,24 @@ WORKDIR /tmp
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && tar -xvzf ta-lib-0.4.0-src.tar.gz \
     && cd ta-lib/ \
-    && ./configure --prefix=/usr \
+    && ./configure \
     && make \
     && make install \
     && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/ \
-    && ldconfig
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
-# Verify TA-Lib installation
-RUN ls -l /usr/lib/libta_lib* || true && \
-    ls -l /usr/local/lib/libta_lib* || true
+# Update library path
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/talib.conf && ldconfig
 
 # Create and activate virtual environment
 RUN python3 -m pip install --upgrade pip \
     && python3 -m pip install virtualenv \
     && python3 -m virtualenv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Set environment variables for ta-lib
+ENV TA_INCLUDE_PATH=/usr/local/include
+ENV TA_LIBRARY_PATH=/usr/local/lib
 
 # Install Python packages with specific numpy version
 COPY requirements.txt .
@@ -50,34 +52,23 @@ FROM --platform=linux/amd64 ubuntu:22.04
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install runtime dependencies and build tools
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    wget \
-    python3-dev \
     python3 \
     libgomp1 \
-    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TA-Lib in final stage
-WORKDIR /tmp
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib/ \
-    && ./configure --prefix=/usr \
-    && make \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/ \
-    && ldconfig
+# Copy TA-Lib files from builder
+COPY --from=builder /usr/local/lib/libta_lib* /usr/local/lib/
+COPY --from=builder /usr/local/include/ta-lib /usr/local/include/ta-lib
 
-# Verify TA-Lib installation in final stage
-RUN ls -l /usr/lib/libta_lib* || true && \
-    ls -l /usr/local/lib/libta_lib* || true
+# Update library path in final stage
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/talib.conf && ldconfig
 
-# Set up environment
-ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
+# Set environment variables
+ENV TA_INCLUDE_PATH=/usr/local/include
+ENV TA_LIBRARY_PATH=/usr/local/lib
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
