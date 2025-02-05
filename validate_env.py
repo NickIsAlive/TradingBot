@@ -107,61 +107,26 @@ def validate_telegram_config() -> bool:
     """
     try:
         import telegram
-        import asyncio
         
-        async def send_test_message():
-            bot = telegram.Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
-            chat_id = os.getenv('TELEGRAM_CHAT_ID')
-            message = "🤖 Trading Bot: Environment validation test message"
+        bot = telegram.Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
+        chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        message = "🤖 Trading Bot: Environment validation test message"
+        
+        logger.info(f"Attempting to send test message to chat ID: {chat_id}")
+        bot.send_message(chat_id=chat_id, text=message)
+        logger.info("Successfully sent Telegram test message")
+        return True
             
-            logger.info(f"Attempting to send test message to chat ID: {chat_id}")
-            await bot.send_message(chat_id=chat_id, text=message)
-            logger.info("Successfully sent Telegram test message")
-            return True
-
-        async def run_validation():
-            try:
-                return await send_test_message()
-            except telegram.error.InvalidToken:
-                logger.error("Invalid Telegram bot token. Please check your TELEGRAM_BOT_TOKEN.")
-            except telegram.error.NetworkError:
-                logger.error("Network error while trying to connect to Telegram. Please check your internet connection.")
-            except telegram.error.TelegramError as e:
-                logger.error(f"Telegram API error: {str(e)}")
-            except Exception as e:
-                logger.error(f"Unexpected error during Telegram message sending: {str(e)}")
-            return False
-
-        async def async_wrapper():
-            try:
-                return await asyncio.wait_for(run_validation(), timeout=10.0)
-            except asyncio.TimeoutError:
-                logger.error("Telegram validation timed out after 10 seconds")
-                return False
-
-        # Try to get the current event loop
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        # Check if we're inside a running event loop
-        if loop.is_running():
-            # We're in an async context, create and run a task
-            task = asyncio.create_task(async_wrapper())
-            # Use asyncio.shield to prevent cancellation during cleanup
-            return asyncio.shield(task)
-        else:
-            # No running loop, we can use run_until_complete
-            try:
-                return loop.run_until_complete(async_wrapper())
-            finally:
-                loop.close()
-
+    except telegram.error.InvalidToken:
+        logger.error("Invalid Telegram bot token. Please check your TELEGRAM_BOT_TOKEN.")
+    except telegram.error.NetworkError:
+        logger.error("Network error while trying to connect to Telegram. Please check your internet connection.")
+    except telegram.error.TelegramError as e:
+        logger.error(f"Telegram API error: {str(e)}")
     except Exception as e:
-        logger.error(f"Critical error in Telegram validation: {str(e)}")
-        return False
+        logger.error(f"Unexpected error during Telegram validation: {str(e)}")
+    
+    return False
 
 def main():
     """Validate all configurations before bot startup."""
