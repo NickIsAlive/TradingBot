@@ -24,4 +24,6 @@ services:
     health_check:
       http_path: /health
       initial_delay_seconds: 30
-      period_seconds: 60 
+      period_seconds: 60
+    environment:
+      - LOG_LEVEL=INFO 
