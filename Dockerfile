@@ -24,10 +24,10 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && make \
     && make install \
     && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+    && rm -rf ta-lib-0.4.0-src.tar.gz
 
 # Update library cache and set up environment
-ENV LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
 RUN ldconfig
 
 # Create and activate virtual environment
@@ -40,7 +40,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --no-cache-dir wheel setuptools numpy \
     && pip install --no-cache-dir -r requirements.txt \
-    && pip install --global-option=build_ext --global-option="-L/usr/lib/" --no-cache-dir ta-lib
+    && pip install --global-option=build_ext --global-option="-L/usr/lib/" --global-option="-L/usr/local/lib/" ta-lib
 
 # Final stage
 FROM --platform=linux/amd64 ubuntu:22.04
@@ -59,7 +59,7 @@ COPY --from=builder /usr/lib/libta_lib* /usr/lib/
 COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
 
 # Set up environment and update library cache
-ENV LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
 RUN ldconfig
 
 # Copy virtual environment from builder
