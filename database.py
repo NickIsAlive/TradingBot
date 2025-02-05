@@ -5,6 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 import pandas as pd
+import ssl
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -12,14 +13,31 @@ logger = logging.getLogger(__name__)
 class TradingDatabase:
     def __init__(self):
         """Initialize database connection using environment variables."""
-        self.conn = psycopg2.connect(
-            host=os.getenv('DB_HOST'),
-            database=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            port=os.getenv('DB_PORT', '5432')
-        )
-        self.create_tables()
+        try:
+            # Create SSL context for secure connection
+            ssl_context = ssl.create_default_context()
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+
+            # Connection parameters for Supabase
+            conn_params = {
+                'host': os.getenv('DB_HOST'),
+                'database': os.getenv('DB_NAME'),
+                'user': os.getenv('DB_USER'),
+                'password': os.getenv('DB_PASSWORD'),
+                'port': os.getenv('DB_PORT', '5432'),  # Default PostgreSQL port
+                'sslmode': 'require',  # Require SSL connection
+                'sslcert': None,  # Using default system CA certificates
+                'connect_timeout': 10  # Connection timeout in seconds
+            }
+
+            logger.info(f"Connecting to Supabase database at {conn_params['host']}:{conn_params['port']}")
+            self.conn = psycopg2.connect(**conn_params)
+            logger.info("Successfully connected to Supabase database")
+            
+            self.create_tables()
+        except Exception as e:
+            logger.error(f"Failed to connect to Supabase database: {str(e)}")
+            raise
 
     def create_tables(self):
         """Create necessary database tables if they don't exist."""

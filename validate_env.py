@@ -32,7 +32,12 @@ required_vars = {
     'VOLUME_RATIO_THRESHOLD': float,
     'CHECK_INTERVAL': int,
     'LOG_LEVEL': str,
-    'LOG_FILE': str
+    'LOG_FILE': str,
+    'DB_HOST': str,
+    'DB_USER': str,
+    'DB_PASSWORD': str,
+    'DB_NAME': str,
+    'DB_PORT': int
 }
 
 def validate_env_vars() -> Dict[str, List[str]]:
@@ -102,13 +107,16 @@ def validate_telegram_config() -> bool:
     """
     try:
         import telegram
+        import asyncio
         
-        bot = telegram.Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
-        chat_id = os.getenv('TELEGRAM_CHAT_ID')
-        
-        # Try to send a test message
-        message = "🤖 Trading Bot: Environment validation test message"
-        bot.send_message(chat_id=chat_id, text=message)
+        async def send_test_message():
+            bot = telegram.Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
+            chat_id = os.getenv('TELEGRAM_CHAT_ID')
+            message = "🤖 Trading Bot: Environment validation test message"
+            await bot.send_message(chat_id=chat_id, text=message)
+            
+        # Run the async function
+        asyncio.run(send_test_message())
         logger.info("Successfully sent Telegram test message")
         return True
         
@@ -150,4 +158,4 @@ def main():
 if __name__ == "__main__":
     success = main()
     if not success:
-        exit(1) 
+        exit(1)
