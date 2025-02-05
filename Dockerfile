@@ -29,6 +29,8 @@ RUN wget -O ta-lib.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0
     && tar -xvzf ta-lib.tar.gz \
     && ls -l /tmp \
     && cd ta-lib/ \
+    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src ta-lib-config|" Makefile.am \
+    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src ta-lib-config|" Makefile.in \
     && ./configure --prefix=/usr \
     && make -j$(nproc) --silent \
     && make install \
