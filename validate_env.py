@@ -114,37 +114,45 @@ def validate_telegram_config() -> bool:
             chat_id = os.getenv('TELEGRAM_CHAT_ID')
             message = "🤖 Trading Bot: Environment validation test message"
             
-            # Log the attempt to send a message
             logger.info(f"Attempting to send test message to chat ID: {chat_id}")
-            
             await bot.send_message(chat_id=chat_id, text=message)
             logger.info("Successfully sent Telegram test message")
-        
-        # Check if there's an existing event loop
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:  # No running loop
-            loop = None
+            return True
 
-        if loop and loop.is_running():
-            # If there's a running loop, use it
-            loop.run_until_complete(send_test_message())
+        async def run_validation():
+            try:
+                return await send_test_message()
+            except telegram.error.InvalidToken:
+                logger.error("Invalid Telegram bot token. Please check your TELEGRAM_BOT_TOKEN.")
+            except telegram.error.NetworkError:
+                logger.error("Network error while trying to connect to Telegram. Please check your internet connection.")
+            except telegram.error.TelegramError as e:
+                logger.error(f"Telegram API error: {str(e)}")
+            except Exception as e:
+                logger.error(f"Unexpected error during Telegram message sending: {str(e)}")
+            return False
+
+        # Get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # Run the validation
+        if loop.is_running():
+            # If we're already in an async context, create a task
+            future = asyncio.ensure_future(run_validation())
+            result = loop.run_until_complete(future)
         else:
-            # Otherwise, create a new event loop
-            asyncio.run(send_test_message())
-        
-        return True
-        
-    except telegram.error.InvalidToken:
-        logger.error("Invalid Telegram bot token. Please check your TELEGRAM_BOT_TOKEN.")
-    except telegram.error.NetworkError:
-        logger.error("Network error while trying to connect to Telegram. Please check your internet connection.")
-    except telegram.error.TelegramError as e:
-        logger.error(f"Telegram API error: {str(e)}")
+            # If no loop is running, we can just run the coroutine
+            result = loop.run_until_complete(run_validation())
+            
+        return result
+
     except Exception as e:
-        logger.error(f"Unexpected error during Telegram configuration validation: {str(e)}")
-    
-    return False
+        logger.error(f"Critical error in Telegram validation: {str(e)}")
+        return False
 
 def main():
     """Validate all configurations before bot startup."""
