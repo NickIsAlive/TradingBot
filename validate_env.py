@@ -120,8 +120,19 @@ def validate_telegram_config() -> bool:
             await bot.send_message(chat_id=chat_id, text=message)
             logger.info("Successfully sent Telegram test message")
         
-        # Run the async function
-        asyncio.run(send_test_message())
+        # Check if there's an existing event loop
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # No running loop
+            loop = None
+
+        if loop and loop.is_running():
+            # If there's a running loop, use it
+            loop.run_until_complete(send_test_message())
+        else:
+            # Otherwise, create a new event loop
+            asyncio.run(send_test_message())
+        
         return True
         
     except telegram.error.InvalidToken:
