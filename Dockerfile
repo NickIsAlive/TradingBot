@@ -13,7 +13,6 @@ RUN apt-get update && apt-get install -y software-properties-common \
     python3-dev \
     python3-pip \
     pkg-config \
-    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install TA-Lib
@@ -59,7 +58,6 @@ RUN apt-get update && apt-get install -y \
     python3 \
     libgomp1 \
     pkg-config \
-    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install TA-Lib in final stage
