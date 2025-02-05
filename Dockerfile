@@ -54,5 +54,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 COPY . .
 
+# Expose the health check port
+EXPOSE 8000
+
 # Run the application
 CMD ["python3", "main.py"] 

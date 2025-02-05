@@ -15,6 +15,8 @@ services:
       period_seconds: 60
     instance_count: 1
     instance_size_slug: basic-xxs
+    internal_ports:
+      - 8000
     envs:
       - key: ALPACA_API_KEY
         scope: RUN_TIME
