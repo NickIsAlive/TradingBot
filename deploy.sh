@@ -1,20 +1,22 @@
 #!/bin/bash
 
-# Exit on error
+# Ensure script stops on first error
 set -e
+
+echo "🚀 Deploying Trading Bot to DigitalOcean..."
 
 # Check if doctl is installed
 if ! command -v doctl &> /dev/null; then
-    echo "doctl is not installed. Please install it first:"
-    echo "brew install doctl  # For macOS"
-    echo "Then authenticate with: doctl auth init"
+    echo "❌ Error: doctl is not installed!"
+    echo "Please install the DigitalOcean CLI first:"
+    echo "https://docs.digitalocean.com/reference/doctl/how-to/install/"
     exit 1
 fi
 
 # Check if authenticated with DigitalOcean
 if ! doctl account get &> /dev/null; then
-    echo "Please authenticate with DigitalOcean first:"
-    echo "doctl auth init"
+    echo "❌ Error: Not authenticated with DigitalOcean!"
+    echo "Please run: doctl auth init"
     exit 1
 fi
 
@@ -35,15 +37,18 @@ for var in "${required_vars[@]}"; do
     fi
 done
 
-# Create app if it doesn't exist
-if ! doctl apps list | grep -q "trading-bot"; then
-    echo "Creating new app on DigitalOcean..."
-    doctl apps create --spec .do/app.yaml
-else
-    echo "Updating existing app..."
-    APP_ID=$(doctl apps list --format ID --no-header | head -n 1)
+# Deploy or update the application
+echo "📦 Deploying application..."
+APP_ID=$(doctl apps list --format ID,Spec.Name --no-header | grep trading-bot | awk '{print $1}')
+
+if [ -n "$APP_ID" ]; then
+    echo "🔄 Updating existing app (ID: $APP_ID)..."
     doctl apps update $APP_ID --spec .do/app.yaml
+else
+    echo "🆕 Creating new app..."
+    doctl apps create --spec .do/app.yaml
 fi
 
-echo "Deployment configuration complete!"
-echo "Visit https://cloud.digitalocean.com/apps to monitor your deployment" 
+echo "✅ Deployment initiated!"
+echo "You can monitor the deployment status in the DigitalOcean dashboard"
+echo "or by running: doctl apps list" 
