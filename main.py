@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import asyncio
 import logging
 import sys
@@ -7,10 +10,12 @@ import config
 from trading import TradingBot
 from health_check import start_health_check
 from validate_env import main as validate_config
+import os
 
 # Configure logging
+log_level = os.getenv('LOG_LEVEL', 'INFO')
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level.upper()),
     format=config.LOG_FORMAT,
     handlers=[
         logging.FileHandler(config.LOG_FILE),

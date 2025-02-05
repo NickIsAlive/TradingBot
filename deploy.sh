@@ -24,15 +24,44 @@ fi
 if [ -f .env ]; then
     export $(cat .env | grep -v '^#' | xargs)
 else
-    echo "Error: .env file not found"
+    echo "❌ Error: .env file not found"
     exit 1
 fi
 
 # Check required environment variables
-required_vars=("ALPACA_API_KEY" "ALPACA_SECRET_KEY" "TELEGRAM_BOT_TOKEN" "TELEGRAM_CHAT_ID")
+required_vars=(
+    "ALPACA_API_KEY"
+    "ALPACA_SECRET_KEY"
+    "ALPACA_BASE_URL"
+    "TELEGRAM_BOT_TOKEN"
+    "TELEGRAM_CHAT_ID"
+    "MAX_POSITIONS"
+    "POSITION_SIZE"
+    "MAX_POSITION_PCT"
+    "INITIAL_STOP_LOSS_PCT"
+    "TRAILING_STOP_PCT"
+    "TRAILING_GAIN_PCT"
+    "MIN_PERIOD"
+    "MAX_PERIOD"
+    "MIN_STD"
+    "MAX_STD"
+    "MIN_PRICE"
+    "MAX_PRICE"
+    "MIN_VOLUME"
+    "MIN_VOLATILITY"
+    "SCREEN_INTERVAL"
+    "MIN_DOLLAR_VOLUME"
+    "MAX_SPREAD_PCT"
+    "MIN_AVG_VOLUME"
+    "VOLUME_RATIO_THRESHOLD"
+    "CHECK_INTERVAL"
+    "LOG_LEVEL"
+    "LOG_FILE"
+)
+
 for var in "${required_vars[@]}"; do
     if [ -z "${!var}" ]; then
-        echo "Error: $var is not set in .env file"
+        echo "❌ Error: $var is not set in .env file"
         exit 1
     fi
 done
@@ -51,4 +80,21 @@ fi
 
 echo "✅ Deployment initiated!"
 echo "You can monitor the deployment status in the DigitalOcean dashboard"
-echo "or by running: doctl apps list" 
+echo "or by running: doctl apps list"
+
+# Wait for deployment to complete
+echo "⏳ Waiting for deployment to complete..."
+sleep 30
+
+# Check deployment status
+if [ -n "$APP_ID" ]; then
+    STATUS=$(doctl apps get $APP_ID --format Status --no-header)
+    echo "📊 Deployment status: $STATUS"
+    
+    if [ "$STATUS" = "running" ]; then
+        echo "✅ Deployment successful!"
+    else
+        echo "⚠️ Deployment status is: $STATUS"
+        echo "Please check the DigitalOcean dashboard for more details."
+    fi
+fi 
