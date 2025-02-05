@@ -10,30 +10,26 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     software-properties-common \
     build-essential \
-    wget \
     python3-dev \
     python3-pip \
     python3-venv \
     pkg-config \
     libgomp1 \
+    wget \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Upgrade pip
 RUN python3 -m pip install --upgrade pip
 
-# Install TA-Lib from source
+# Install precompiled TA-Lib (BYPASS BROKEN SOURCE BUILD)
 WORKDIR /tmp
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib/ \
-    && ./configure --prefix=/usr \
-    && make -j$(nproc) \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+RUN wget https://github.com/TA-Lib/ta-lib/releases/download/ta-lib-0.4.0/ta-lib-0.4.0-linux-x86_64.zip \
+    && unzip ta-lib-0.4.0-linux-x86_64.zip -d /usr/local/ \
+    && rm ta-lib-0.4.0-linux-x86_64.zip
 
-# Update library path to ensure TA-Lib is found
-ENV LD_LIBRARY_PATH="/usr/lib:$LD_LIBRARY_PATH"
+# Ensure TA-Lib is correctly linked
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
 # Create and activate virtual environment
 RUN python3 -m pip install virtualenv \
@@ -66,12 +62,12 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip
 RUN python3 -m pip install --upgrade pip
 
-# Copy TA-Lib from builder
-COPY --from=builder /usr/lib/libta_lib.so* /usr/lib/
-COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
+# Copy prebuilt TA-Lib from builder
+COPY --from=builder /usr/local/lib /usr/local/lib
+COPY --from=builder /usr/local/include /usr/local/include
 
 # Ensure TA-Lib is correctly linked
-ENV LD_LIBRARY_PATH="/usr/lib:$LD_LIBRARY_PATH"
+ENV LD_LIBRARY_PATH="/usr/local/lib:$LD_LIBRARY_PATH"
 
 # Copy Python virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
