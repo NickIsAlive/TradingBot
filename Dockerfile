@@ -23,7 +23,8 @@ WORKDIR /tmp
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && tar -xvzf ta-lib-0.4.0-src.tar.gz \
     && cd ta-lib/ \
-    && ./configure --prefix=/usr \
+    && sed -i.bak "s|0.00000001|0.000000001|g" src/ta_func/ta_utility.h \
+    && CFLAGS="-fPIC" ./configure --prefix=/usr --disable-static --enable-shared --disable-tools \
     && make -j$(nproc) \
     && make install \
     && cd .. \
@@ -66,8 +67,11 @@ RUN useradd -m trader
 USER trader
 WORKDIR /home/trader
 
+# Create .local directories
+RUN mkdir -p /home/trader/.local/{lib,include}
+
 # Copy TA-Lib from builder
-COPY --from=builder /usr/lib/libta_lib* /home/trader/.local/lib/
+COPY --from=builder /usr/lib/libta_lib.so* /home/trader/.local/lib/
 COPY --from=builder /usr/include/ta-lib /home/trader/.local/include/ta-lib
 
 # Set up library path for TA-Lib
