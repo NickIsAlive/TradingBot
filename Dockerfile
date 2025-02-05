@@ -43,18 +43,12 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir ta-lib
 
-# Install TA-Lib from source
+# Install TA-Lib using the script from the gist
 WORKDIR /tmp
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib \
-    && wget 'http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess;hb=HEAD' -O './config.guess' \
-    && wget 'http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD' -O './config.sub' \
-    && ./configure --prefix=/usr \
-    && make \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+RUN wget https://gist.githubusercontent.com/preritdas/7b1a4fcd6b3835e80cea4c27295464d4/raw/install-talib-ubuntu.sh \
+    && chmod +x install-talib-ubuntu.sh \
+    && ./install-talib-ubuntu.sh \
+    && rm install-talib-ubuntu.sh
 
 # ===============================
 # Stage 2: Final Image
