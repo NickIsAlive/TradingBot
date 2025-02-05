@@ -53,39 +53,49 @@ async def main():
     await start_health_check()
     
     bot = TradingBot()
+    
+    # Start Telegram bot
+    await bot.start()
+    logger.info("Telegram bot started successfully")
+    
     last_screen_time = 0
     
-    while True:
-        try:
-            current_time = datetime.now().timestamp()
-            
-            if is_market_hours():
-                # Update trading symbols periodically
-                if current_time - last_screen_time >= config.SCREEN_INTERVAL:
-                    logger.info("Screening for new trading candidates...")
-                    await bot.update_trading_symbols()
-                    last_screen_time = current_time
+    try:
+        while True:
+            try:
+                current_time = datetime.now().timestamp()
                 
-                if bot.trading_symbols:
-                    logger.info("Processing trading symbols...")
-                    for symbol in bot.trading_symbols:
-                        try:
-                            await bot.process_symbol(symbol)
-                        except Exception as e:
-                            logger.error(f"Error processing {symbol}: {str(e)}")
-                            continue
-                    logger.info("Finished processing symbols")
+                if is_market_hours():
+                    # Update trading symbols periodically
+                    if current_time - last_screen_time >= config.SCREEN_INTERVAL:
+                        logger.info("Screening for new trading candidates...")
+                        await bot.update_trading_symbols()
+                        last_screen_time = current_time
+                    
+                    if bot.trading_symbols:
+                        logger.info("Processing trading symbols...")
+                        for symbol in bot.trading_symbols:
+                            try:
+                                await bot.process_symbol(symbol)
+                            except Exception as e:
+                                logger.error(f"Error processing {symbol}: {str(e)}")
+                                continue
+                        logger.info("Finished processing symbols")
+                    else:
+                        logger.warning("No trading symbols available")
                 else:
-                    logger.warning("No trading symbols available")
-            else:
-                logger.info("Market is closed. Waiting...")
-            
-            # Wait for the next check interval
-            await asyncio.sleep(config.CHECK_INTERVAL)
-            
-        except Exception as e:
-            logger.error(f"Error in main loop: {str(e)}")
-            await asyncio.sleep(config.CHECK_INTERVAL)
+                    logger.info("Market is closed. Waiting...")
+                
+                # Wait for the next check interval
+                await asyncio.sleep(config.CHECK_INTERVAL)
+                
+            except Exception as e:
+                logger.error(f"Error in main loop: {str(e)}")
+                await asyncio.sleep(config.CHECK_INTERVAL)
+    finally:
+        # Ensure Telegram bot is stopped properly
+        await bot.stop()
+        logger.info("Telegram bot stopped")
 
 if __name__ == "__main__":
     try:

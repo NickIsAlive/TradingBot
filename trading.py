@@ -13,7 +13,9 @@ import config
 from indicators import TechnicalAnalysis
 from notifications import TelegramNotifier
 from screener import StockScreener
+from database import TradingDatabase
 import talib
+from telegram.ext import Application
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +36,31 @@ class TradingBot:
         self.technical_analysis = TechnicalAnalysis()
         self.notifier = TelegramNotifier()
         self.screener = StockScreener(self.data_client)
+        self.db = TradingDatabase()
         self.trading_symbols = []
         self.position_trackers = {}  # Track position metrics for trailing stops
+        self.active_trades = {}  # Track active trade IDs for database updates
+        
+        # Initialize Telegram bot
+        self.telegram_app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+        self.notifier.set_trading_client(self.trading_client)
+        
+    async def start(self):
+        """Start the Telegram bot and set up commands."""
+        await self.notifier.setup_commands(self.telegram_app)
+        await self.telegram_app.initialize()
+        await self.telegram_app.start()
+        await self.telegram_app.updater.start_polling()
+        
+        logger.info("Telegram bot started and commands initialized")
+        
+    async def stop(self):
+        """Stop the Telegram bot and clean up resources."""
+        await self.telegram_app.stop()
+        await self.telegram_app.shutdown()
+        self.db.close()
+        
+        logger.info("Telegram bot stopped and database connection closed")
         
     async def update_trading_symbols(self):
         """Update the list of trading symbols based on screening criteria."""
@@ -328,16 +353,36 @@ class TradingBot:
             regime = self.detect_market_regime(df)
             logger.info(f"Market regime for {symbol}: {regime}")
             
-            # Calculate volume ratio for signal confirmation
+            # Calculate indicators
+            rsi = talib.RSI(df.close.values, timeperiod=14)[-1]
+            sma20 = talib.SMA(df.close.values, timeperiod=20)[-1]
+            sma50 = talib.SMA(df.close.values, timeperiod=50)[-1]
+            atr = talib.ATR(df.high.values, df.low.values, df.close.values, timeperiod=14)[-1]
+            
+            # Calculate volume ratio
             avg_volume = df.volume.mean()
             current_volume = df.volume.iloc[-1]
             volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
             
-            # Calculate RSI for signal confirmation
-            rsi = talib.RSI(df.close.values, timeperiod=14)[-1]
-            
-            # Calculate ATR for position sizing
-            atr = talib.ATR(df.high.values, df.low.values, df.close.values, timeperiod=14)[-1]
+            # Record market data
+            await self.db.record_market_data(
+                symbol=symbol,
+                timestamp=df.index[-1],
+                ohlcv={
+                    'open': df.open.iloc[-1],
+                    'high': df.high.iloc[-1],
+                    'low': df.low.iloc[-1],
+                    'close': df.close.iloc[-1],
+                    'volume': df.volume.iloc[-1]
+                },
+                indicators={
+                    'rsi': rsi,
+                    'sma20': sma20,
+                    'sma50': sma50,
+                    'atr': atr,
+                    'market_regime': regime
+                }
+            )
             
             # Get optimal Bollinger Bands parameters
             try:
@@ -346,15 +391,14 @@ class TradingBot:
                 logger.warning(f"Could not get optimal parameters for {symbol}, using defaults: {str(e)}")
                 params = {'period': 20, 'std': 2.0}
             
-            # Calculate indicators
+            # Calculate Bollinger Bands
             self.technical_analysis.update_parameters(
                 period=params['period'],
                 num_std=params['std']
             )
-            
             upper_band, middle_band, lower_band = self.technical_analysis.calculate_bollinger_bands(df.close)
             
-            # Generate enhanced trading signal
+            # Generate trading signal
             signal = self.technical_analysis.generate_signal(
                 current_price,
                 upper_band.iloc[-1],
@@ -378,7 +422,16 @@ class TradingBot:
                 if should_exit:
                     logger.info(f"{exit_reason} triggered for {symbol}")
                     await self.execute_trade(symbol, 'SELL', position['qty'])
-                    del self.position_trackers[symbol]
+                    
+                    # Record trade exit in database
+                    if symbol in self.active_trades:
+                        await self.db.record_trade_exit(
+                            self.active_trades[symbol],
+                            current_price,
+                            exit_reason
+                        )
+                        del self.active_trades[symbol]
+                        del self.position_trackers[symbol]
                     
             elif signal in ['BUY', 'STRONG_BUY']:
                 # Check overall market conditions
@@ -386,26 +439,43 @@ class TradingBot:
                     logger.info(f"Skipping {signal} signal for {symbol} due to unfavorable market conditions")
                     return
                     
-                # Calculate base position size
+                # Calculate position size
                 base_quantity = self.calculate_position_size(symbol, current_price)
-                
-                # Adjust position size based on market regime
                 adjusted_quantity = self.adjust_position_size_for_regime(base_quantity, regime)
                 
                 if adjusted_quantity > 0:
-                    # Execute buy order with enhanced logging
+                    # Execute buy order
                     logger.info(f"Executing {signal} for {symbol} - Price: ${current_price:.2f}, "
                               f"RSI: {rsi:.1f}, Volume Ratio: {volume_ratio:.1f}, Regime: {regime}")
                     
                     await self.execute_trade(symbol, 'BUY', adjusted_quantity)
                     
-                    # Initialize position tracking with enhanced metrics
+                    # Record trade entry in database
+                    trade_id = await self.db.record_trade_entry(
+                        symbol=symbol,
+                        side='BUY',
+                        quantity=adjusted_quantity,
+                        price=current_price,
+                        strategy='MEAN_REVERSION',
+                        market_regime=regime,
+                        rsi=rsi,
+                        volume_ratio=volume_ratio,
+                        atr=atr
+                    )
+                    
+                    # Track active trade
+                    self.active_trades[symbol] = trade_id
+                    
+                    # Initialize position tracking
                     self.initialize_position_tracker(
                         symbol,
                         entry_price=current_price,
                         quantity=adjusted_quantity,
                         atr=atr
                     )
+            
+            # Update daily performance metrics
+            await self.db.update_daily_performance()
                 
         except Exception as e:
             error_msg = f"Error processing {symbol}: {str(e)}"
