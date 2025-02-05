@@ -1,0 +1,34 @@
+name: trading-bot
+region: nyc
+services:
+  - name: trading-bot
+    dockerfile_path: Dockerfile
+    source_dir: /
+    github:
+      branch: main
+      deploy_on_push: true
+      repo: NickIsAlive/TradingBot
+    health_check:
+      http_path: /health
+      port: 8000
+      initial_delay_seconds: 30
+      period_seconds: 60
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: ALPACA_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${ALPACA_API_KEY}
+      - key: ALPACA_SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: ${ALPACA_SECRET_KEY}
+      - key: TELEGRAM_BOT_TOKEN
+        scope: RUN_TIME
+        type: SECRET
+        value: ${TELEGRAM_BOT_TOKEN}
+      - key: TELEGRAM_CHAT_ID
+        scope: RUN_TIME
+        type: SECRET
+        value: ${TELEGRAM_CHAT_ID} 
