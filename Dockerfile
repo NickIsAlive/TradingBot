@@ -37,6 +37,16 @@ WORKDIR /home/trader
 RUN python3 -m venv venv
 ENV PATH="/home/trader/venv/bin:$PATH"
 
+# Install TA-Lib using the script from the gist
+WORKDIR /tmp
+RUN wget https://gist.githubusercontent.com/preritdas/7b1a4fcd6b3835e80cea4c27295464d4/raw/install-talib-ubuntu.sh \
+    && chmod +x install-talib-ubuntu.sh \
+    && ./install-talib-ubuntu.sh \
+    && rm install-talib-ubuntu.sh
+
+# Ensure TA-Lib is linked correctly
+RUN ldconfig
+
 # Upgrade pip and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
@@ -44,13 +54,6 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir numpy==1.26.4 \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir ta-lib
-
-# Install TA-Lib using the script from the gist
-WORKDIR /tmp
-RUN wget https://gist.githubusercontent.com/preritdas/7b1a4fcd6b3835e80cea4c27295464d4/raw/install-talib-ubuntu.sh \
-    && chmod +x install-talib-ubuntu.sh \
-    && ./install-talib-ubuntu.sh \
-    && rm install-talib-ubuntu.sh
 
 # ===============================
 # Stage 2: Final Image
