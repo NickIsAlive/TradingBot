@@ -15,17 +15,17 @@ class TradingDatabase:
     def __init__(self):
         """Initialize database connection using environment variables."""
         try:
-            # Use the full connection URL from Supabase
-            database_url = os.getenv('DATABASE_URL')
+            # Use the full connection URL from Supabase, removing any extra quotes
+            database_url = os.getenv('DATABASE_URL', '').strip('"\'')
             
+            # Validate the connection URL
+            if not database_url:
+                raise ValueError("DATABASE_URL is not set in the environment")
+
             # Additional connection parameters
             conn_params = {
                 'sslmode': 'require',
-                'connect_timeout': 15,
-                'keepalives': 1,
-                'keepalives_idle': 30,
-                'keepalives_interval': 10,
-                'keepalives_count': 5
+                'connect_timeout': 15
             }
 
             logger.info(f"Connecting to Supabase database...")
