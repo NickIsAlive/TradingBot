@@ -38,6 +38,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python packages
 COPY requirements.txt .
+# Define NumPy API version to avoid deprecation warning
+ENV CFLAGS="-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"
 RUN pip install --no-cache-dir wheel setuptools numpy \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --global-option=build_ext --global-option="-L/usr/lib/" --global-option="-L/usr/local/lib/" ta-lib
@@ -71,6 +73,7 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
 
 # Set up environment and update library cache
 ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
+ENV CFLAGS="-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION"
 RUN ldconfig
 
 # Copy virtual environment from builder
