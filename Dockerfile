@@ -20,22 +20,8 @@ RUN apt-get update && apt-get install -y \
     unzip \
     autoconf \
     libtool \
+    ta-lib \
     && rm -rf /var/lib/apt/lists/*
-
-# Install TA-Lib from source
-WORKDIR /tmp
-RUN wget -O ta-lib.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && ls -l /tmp \
-    && tar -xvzf ta-lib.tar.gz \
-    && ls -l /tmp \
-    && cd ta-lib/ \
-    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src ta-lib-config|" Makefile.am \
-    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src ta-lib-config|" Makefile.in \
-    && ./configure --prefix=/usr \
-    && make -j$(nproc) --silent \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib.tar.gz ta-lib/
 
 # Ensure TA-Lib is linked correctly
 RUN ldconfig
