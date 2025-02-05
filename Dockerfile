@@ -19,7 +19,10 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && cd ta-lib/ \
     && ./configure --prefix=/usr \
     && make \
-    && make install \
+    && make install
+
+# Ensure the library is in the correct location and update cache
+RUN cp /usr/lib/libta_lib* /usr/lib/x86_64-linux-gnu/ \
     && ldconfig
 
 # Create and activate virtual environment
@@ -27,6 +30,10 @@ RUN python3 -m pip install --upgrade pip \
     && python3 -m pip install virtualenv \
     && python3 -m virtualenv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Set environment variables for TA-Lib installation
+ENV TA_INCLUDE_PATH=/usr/include/ta-lib
+ENV TA_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
 
 # Install Python packages
 COPY requirements.txt .
@@ -45,8 +52,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy TA-Lib libraries and files from builder
-COPY --from=builder /usr/lib/libta_lib* /usr/lib/
+COPY --from=builder /usr/lib/x86_64-linux-gnu/libta_lib* /usr/lib/x86_64-linux-gnu/
 COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
+
+# Set environment variables for TA-Lib
+ENV TA_INCLUDE_PATH=/usr/include/ta-lib
+ENV TA_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
 
 # Run ldconfig to update the shared library cache
 RUN ldconfig
