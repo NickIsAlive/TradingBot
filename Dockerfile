@@ -25,8 +25,8 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && tar -xvzf ta-lib-0.4.0-src.tar.gz \
     && cd ta-lib/ \
     && sed -i.bak "s|0.00000001|0.000000001|g" src/ta_func/ta_utility.h \
-    && sed -i.bak '/tools/d' configure \
-    && autoreconf -fi \
+    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src|" Makefile.am \
+    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src|" Makefile.in \
     && CFLAGS="-fPIC" ./configure --prefix=/usr \
     && make -j$(nproc) \
     && make install \
