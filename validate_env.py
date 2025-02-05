@@ -132,23 +132,32 @@ def validate_telegram_config() -> bool:
                 logger.error(f"Unexpected error during Telegram message sending: {str(e)}")
             return False
 
-        # Get or create event loop
+        async def async_wrapper():
+            try:
+                return await asyncio.wait_for(run_validation(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.error("Telegram validation timed out after 10 seconds")
+                return False
+
+        # Try to get the current event loop
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        # Run the validation
+        # Check if we're inside a running event loop
         if loop.is_running():
-            # If we're already in an async context, create a task
-            future = asyncio.ensure_future(run_validation())
-            result = loop.run_until_complete(future)
+            # We're in an async context, create and run a task
+            task = asyncio.create_task(async_wrapper())
+            # Use asyncio.shield to prevent cancellation during cleanup
+            return asyncio.shield(task)
         else:
-            # If no loop is running, we can just run the coroutine
-            result = loop.run_until_complete(run_validation())
-            
-        return result
+            # No running loop, we can use run_until_complete
+            try:
+                return loop.run_until_complete(async_wrapper())
+            finally:
+                loop.close()
 
     except Exception as e:
         logger.error(f"Critical error in Telegram validation: {str(e)}")
