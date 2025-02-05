@@ -18,18 +18,19 @@ class TradingDatabase:
             ssl_context = ssl.create_default_context()
             ssl_context.verify_mode = ssl.CERT_REQUIRED
 
-            # Get database URL from environment
-            database_url = os.getenv('DATABASE_URL')
-            if not database_url:
-                # Fallback to constructing URL from individual parameters
-                database_url = f"postgresql://{os.getenv('DB_USER')}:{os.getenv('DB_PASSWORD')}@{os.getenv('DB_HOST')}:{os.getenv('DB_PORT', '5432')}/{os.getenv('DB_NAME')}"
+            # Connection parameters for Supabase
+            conn_params = {
+                'host': os.getenv('DB_HOST'),
+                'database': os.getenv('DB_NAME'),
+                'user': os.getenv('DB_USER'),
+                'password': os.getenv('DB_PASSWORD').strip('"'),  # Remove any quotes
+                'port': os.getenv('DB_PORT', '5432'),
+                'sslmode': 'require',
+                'connect_timeout': 10
+            }
 
-            logger.info(f"Connecting to Supabase database...")
-            self.conn = psycopg2.connect(
-                database_url,
-                sslmode='require',
-                connect_timeout=10
-            )
+            logger.info(f"Connecting to Supabase database at {conn_params['host']}:{conn_params['port']}")
+            self.conn = psycopg2.connect(**conn_params)
             logger.info("Successfully connected to Supabase database")
             
             self.create_tables()
