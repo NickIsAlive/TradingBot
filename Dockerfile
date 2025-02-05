@@ -6,27 +6,40 @@ FROM --platform=linux/amd64 ubuntu:22.04 AS builder
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies, including TA-Lib
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    software-properties-common \
     build-essential \
+    wget \
     python3-dev \
     python3-pip \
     python3-venv \
     pkg-config \
     libgomp1 \
-    wget \
+    curl \
+    git \
     unzip \
-    ta-lib \
-    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install TA-Lib from source
+WORKDIR /tmp
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib/ \
+    && ./configure --prefix=/usr \
+    && make -j$(nproc) \
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+
+# Ensure TA-Lib is linked properly
+RUN ldconfig
 
 # Create a non-root user
 RUN useradd -m trader
 USER trader
 WORKDIR /home/trader
 
-# Create and activate virtual environment
+# Create and activate a virtual environment
 RUN python3 -m venv venv
 ENV PATH="/home/trader/venv/bin:$PATH"
 
@@ -51,9 +64,17 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \
     libgomp1 \
-    ta-lib \
-    libta-lib-dev \
+    curl \
+    git \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy TA-Lib from builder
+COPY --from=builder /usr/lib/libta_lib.so* /usr/lib/
+COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
+
+# Ensure TA-Lib is correctly linked
+RUN ldconfig
 
 # Create a non-root user
 RUN useradd -m trader
