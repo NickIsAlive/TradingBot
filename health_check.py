@@ -3,7 +3,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def health_check():
+async def health_check(request):
     """Simple health check endpoint."""
     return web.Response(text='OK', status=200)
 
