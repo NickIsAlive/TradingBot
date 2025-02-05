@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y software-properties-common \
     python3-dev \
     python3-pip \
     pkg-config \
+    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install TA-Lib
@@ -26,6 +27,10 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && cd .. \
     && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/ \
     && ldconfig
+
+# Verify TA-Lib installation
+RUN ls -l /usr/lib/libta_lib* || true && \
+    ls -l /usr/local/lib/libta_lib* || true
 
 # Create and activate virtual environment
 RUN python3 -m pip install --upgrade pip \
@@ -54,6 +59,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     libgomp1 \
     pkg-config \
+    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install TA-Lib in final stage
@@ -67,6 +73,10 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && cd .. \
     && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/ \
     && ldconfig
+
+# Verify TA-Lib installation in final stage
+RUN ls -l /usr/lib/libta_lib* || true && \
+    ls -l /usr/local/lib/libta_lib* || true
 
 # Set up environment
 ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
