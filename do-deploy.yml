@@ -12,11 +12,9 @@ services:
       - key: ALPACA_API_KEY
         scope: RUN_TIME
         type: SECRET
-        value: ${ALPACA_API_KEY}
       - key: ALPACA_SECRET_KEY
         scope: RUN_TIME
         type: SECRET
-        value: ${ALPACA_SECRET_KEY}
       - key: ALPACA_BASE_URL
         scope: RUN_TIME
         type: GENERAL
@@ -24,9 +22,11 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_TIME
         type: SECRET
+        value: "7930632186:AAErUABuZwa9SvN0eSyxdP8tL6rX8jRv2Aw"
       - key: TELEGRAM_CHAT_ID
         scope: RUN_TIME
         type: SECRET
+        value: "7499316550"
       - key: MAX_POSITIONS
         scope: RUN_TIME
         value: "5"
