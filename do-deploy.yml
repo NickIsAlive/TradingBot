@@ -20,7 +20,7 @@ services:
       - key: ALPACA_BASE_URL
         scope: RUN_TIME
         type: GENERAL
-        value: "https://paper-api.alpaca.markets"
+        value: "https://paper-api.alpaca.markets/v2"
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_TIME
         type: SECRET
