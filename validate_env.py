@@ -113,16 +113,27 @@ def validate_telegram_config() -> bool:
             bot = telegram.Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
             chat_id = os.getenv('TELEGRAM_CHAT_ID')
             message = "🤖 Trading Bot: Environment validation test message"
-            await bot.send_message(chat_id=chat_id, text=message)
             
+            # Log the attempt to send a message
+            logger.info(f"Attempting to send test message to chat ID: {chat_id}")
+            
+            await bot.send_message(chat_id=chat_id, text=message)
+            logger.info("Successfully sent Telegram test message")
+        
         # Run the async function
         asyncio.run(send_test_message())
-        logger.info("Successfully sent Telegram test message")
         return True
         
+    except telegram.error.InvalidToken:
+        logger.error("Invalid Telegram bot token. Please check your TELEGRAM_BOT_TOKEN.")
+    except telegram.error.NetworkError:
+        logger.error("Network error while trying to connect to Telegram. Please check your internet connection.")
+    except telegram.error.TelegramError as e:
+        logger.error(f"Telegram API error: {str(e)}")
     except Exception as e:
-        logger.error(f"Failed to validate Telegram configuration: {str(e)}")
-        return False
+        logger.error(f"Unexpected error during Telegram configuration validation: {str(e)}")
+    
+    return False
 
 def main():
     """Validate all configurations before bot startup."""
