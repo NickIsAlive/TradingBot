@@ -25,7 +25,9 @@ RUN apt-get update && apt-get install -y \
 # Install TA-Lib from source
 WORKDIR /tmp
 RUN wget -O ta-lib.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && ls -l /tmp \
     && tar -xvzf ta-lib.tar.gz \
+    && ls -l /tmp \
     && cd ta-lib-0.4.0/ \
     && ./configure --prefix=/usr \
     && make -j$(nproc) --silent \
