@@ -26,4 +26,25 @@ services:
       initial_delay_seconds: 30
       period_seconds: 60
     environment:
-      - LOG_LEVEL=INFO 
+      - MAX_POSITIONS=5
+      - POSITION_SIZE=0.1
+      - MAX_POSITION_PCT=0.20
+      - INITIAL_STOP_LOSS_PCT=0.03
+      - TRAILING_STOP_PCT=0.02
+      - TRAILING_GAIN_PCT=0.01
+      - MIN_PERIOD=10
+      - MAX_PERIOD=50
+      - MIN_STD=1.5
+      - MAX_STD=3.0
+      - MIN_PRICE=10
+      - MAX_PRICE=200
+      - MIN_VOLUME=500000
+      - MIN_VOLATILITY=0.2
+      - SCREEN_INTERVAL=3600
+      - MIN_DOLLAR_VOLUME=5000000
+      - MAX_SPREAD_PCT=0.002
+      - MIN_AVG_VOLUME=100000
+      - VOLUME_RATIO_THRESHOLD=1.5
+      - CHECK_INTERVAL=300
+      - LOG_LEVEL=INFO
+      - LOG_FILE=trading_bot.log
