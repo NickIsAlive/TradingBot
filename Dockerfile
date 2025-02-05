@@ -15,6 +15,9 @@ RUN apt-get update && apt-get install -y software-properties-common \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Upgrade pip
+RUN python3 -m pip install --upgrade pip
+
 # Download and install TA-Lib
 WORKDIR /tmp
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
@@ -30,10 +33,12 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
 RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/talib.conf && ldconfig
 
 # Create and activate virtual environment
-RUN python3 -m pip install --upgrade pip \
-    && python3 -m pip install virtualenv \
+RUN python3 -m pip install virtualenv \
     && python3 -m virtualenv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip in virtual environment
+RUN pip install --upgrade pip
 
 # Set environment variables for ta-lib
 ENV TA_INCLUDE_PATH=/usr/local/include
@@ -52,11 +57,13 @@ FROM --platform=linux/amd64 ubuntu:22.04
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install runtime dependencies
+# Install runtime dependencies and pip
 RUN apt-get update && apt-get install -y \
     python3 \
+    python3-pip \
     libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m pip install --upgrade pip
 
 # Copy TA-Lib files from builder
 COPY --from=builder /usr/local/lib/libta_lib* /usr/local/lib/
@@ -73,6 +80,9 @@ ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip in virtual environment
+RUN pip install --upgrade pip
 
 # Set working directory and copy application files
 WORKDIR /app
