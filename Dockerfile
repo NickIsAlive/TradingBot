@@ -48,15 +48,26 @@ FROM --platform=linux/amd64 ubuntu:22.04
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install runtime dependencies
+# Install runtime dependencies and build tools
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    wget \
+    python3-dev \
     python3 \
     libgomp1 \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy necessary files from builder
-COPY --from=builder /usr/lib/libta_lib* /usr/lib/
-COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
+# Install TA-Lib in final stage
+WORKDIR /tmp
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib/ \
+    && ./configure --prefix=/usr \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
 # Set up environment and update library cache
 ENV LD_LIBRARY_PATH=/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH
