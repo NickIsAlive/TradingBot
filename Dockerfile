@@ -20,16 +20,16 @@ RUN apt-get update && apt-get install -y \
     libtool \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TA-Lib from source
+# Install TA-Lib version 0.6.4 from GitHub
 WORKDIR /tmp
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib \
+RUN wget https://github.com/ta-lib/ta-lib/archive/refs/tags/v0.6.4.tar.gz \
+    && tar -xzf v0.6.4.tar.gz \
+    && cd ta-lib-0.6.4 \
     && ./configure --prefix=/usr \
     && make \
     && make install \
     && cd .. \
-    && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+    && rm -rf ta-lib-0.6.4 v0.6.4.tar.gz
 
 # Ensure TA-Lib is linked correctly
 RUN ldconfig
