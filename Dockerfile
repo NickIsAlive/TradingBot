@@ -17,6 +17,9 @@ RUN apt-get update && apt-get install -y \
     git \
     unzip \
     cmake \
+    libpq-dev \
+    libssl-dev \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install TA-Lib version 0.6.4 from GitHub using CMake
@@ -43,6 +46,10 @@ WORKDIR /home/trader
 # Create and activate a virtual environment
 RUN python3 -m venv venv
 ENV PATH="/home/trader/venv/bin:$PATH"
+
+# Create SSL certificates directory
+RUN mkdir -p /home/trader/.postgresql && \
+    chmod 700 /home/trader/.postgresql
 
 # Upgrade pip and install Python dependencies
 COPY requirements.txt .
