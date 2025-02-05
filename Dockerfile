@@ -28,12 +28,12 @@ RUN wget -O ta-lib.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0
     && ls -l /tmp \
     && tar -xvzf ta-lib.tar.gz \
     && ls -l /tmp \
-    && cd ta-lib-0.4.0/ \
+    && cd ta-lib/ \
     && ./configure --prefix=/usr \
     && make -j$(nproc) --silent \
     && make install \
     && cd .. \
-    && rm -rf ta-lib.tar.gz ta-lib-0.4.0/
+    && rm -rf ta-lib.tar.gz ta-lib/
 
 # Ensure TA-Lib is linked correctly
 RUN ldconfig
