@@ -13,12 +13,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Download and install TA-Lib
+WORKDIR /tmp
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && tar -xvzf ta-lib-0.4.0-src.tar.gz \
     && cd ta-lib/ \
     && ./configure --prefix=/usr \
     && make \
-    && make install
+    && make install \
+    && ldconfig
 
 # Create and activate virtual environment
 RUN python3 -m pip install --upgrade pip \
@@ -28,7 +30,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir numpy \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Final stage
 FROM --platform=linux/amd64 ubuntu:22.04
@@ -39,12 +42,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
-    libta-lib0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy TA-Lib libraries from builder
+# Copy TA-Lib libraries and files from builder
 COPY --from=builder /usr/lib/libta_lib* /usr/lib/
 COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
+
+# Run ldconfig to update the shared library cache
+RUN ldconfig
 
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
