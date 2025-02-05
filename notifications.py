@@ -1,7 +1,7 @@
 import logging
 import telegram
 from telegram.error import TelegramError
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Updater, CommandHandler
 import config
 from datetime import datetime, timedelta
 import pandas as pd
@@ -13,19 +13,30 @@ class TelegramNotifier:
         self.bot = telegram.Bot(token=config.TELEGRAM_BOT_TOKEN)
         self.chat_id = config.TELEGRAM_CHAT_ID
         self.trading_client = None  # Will be set by TradingBot
+        self.updater = Updater(token=config.TELEGRAM_BOT_TOKEN, use_context=True)
+        self.setup_commands()
 
     def set_trading_client(self, trading_client):
         """Set the trading client for accessing account and trade information."""
         self.trading_client = trading_client
 
-    async def setup_commands(self, application: Application):
+    def setup_commands(self):
         """Set up command handlers for the bot."""
-        application.add_handler(CommandHandler("symbols", self.cmd_symbols))
-        application.add_handler(CommandHandler("trades", self.cmd_trades))
-        application.add_handler(CommandHandler("profits", self.cmd_profits))
-        application.add_handler(CommandHandler("balance", self.cmd_balance))
+        dp = self.updater.dispatcher
+        dp.add_handler(CommandHandler("symbols", self.cmd_symbols))
+        dp.add_handler(CommandHandler("trades", self.cmd_trades))
+        dp.add_handler(CommandHandler("profits", self.cmd_profits))
+        dp.add_handler(CommandHandler("balance", self.cmd_balance))
 
-    async def send_message(self, message: str) -> None:
+    def start(self):
+        """Start the bot."""
+        self.updater.start_polling()
+
+    def stop(self):
+        """Stop the bot."""
+        self.updater.stop()
+
+    def send_message(self, message: str) -> None:
         """
         Send a message to the configured Telegram chat.
         
@@ -33,7 +44,7 @@ class TelegramNotifier:
             message (str): The message to send
         """
         try:
-            await self.bot.send_message(
+            self.bot.send_message(
                 chat_id=self.chat_id,
                 text=message,
                 parse_mode='HTML'
@@ -41,7 +52,7 @@ class TelegramNotifier:
         except TelegramError as e:
             logger.error(f"Failed to send Telegram message: {str(e)}")
 
-    async def send_trade_notification(self, symbol: str, action: str, price: float, quantity: float) -> None:
+    def send_trade_notification(self, symbol: str, action: str, price: float, quantity: float) -> None:
         """
         Send a formatted trade notification.
         
@@ -59,9 +70,9 @@ class TelegramNotifier:
             f"Quantity: {quantity}\n"
             f"Total Value: ${price * quantity:.2f}"
         )
-        await self.send_message(message)
+        self.send_message(message)
 
-    async def send_error_notification(self, error_message: str) -> None:
+    def send_error_notification(self, error_message: str) -> None:
         """
         Send an error notification.
         
@@ -69,18 +80,18 @@ class TelegramNotifier:
             error_message (str): The error message to send
         """
         message = f"⚠️ <b>Error Alert</b>\n\n{error_message}"
-        await self.send_message(message)
+        self.send_message(message)
 
-    async def cmd_symbols(self, update: telegram.Update, context) -> None:
+    def cmd_symbols(self, update: telegram.Update, context) -> None:
         """Handle /symbols command - Show current trading symbols."""
         if not self.trading_client:
-            await self.send_message("❌ Trading client not initialized")
+            self.send_message("❌ Trading client not initialized")
             return
 
         try:
             positions = self.trading_client.get_all_positions()
             if not positions:
-                await self.send_message("📊 No active positions")
+                self.send_message("📊 No active positions")
                 return
 
             message = "📊 <b>Current Positions</b>\n\n"
@@ -97,15 +108,15 @@ class TelegramNotifier:
                     f"P/L: {pnl_pct:+.2f}%\n\n"
                 )
 
-            await self.send_message(message)
+            self.send_message(message)
 
         except Exception as e:
-            await self.send_error_notification(f"Error fetching symbols: {str(e)}")
+            self.send_error_notification(f"Error fetching symbols: {str(e)}")
 
-    async def cmd_trades(self, update: telegram.Update, context) -> None:
+    def cmd_trades(self, update: telegram.Update, context) -> None:
         """Handle /trades command - Show trades from the last month."""
         if not self.trading_client:
-            await self.send_message("❌ Trading client not initialized")
+            self.send_message("❌ Trading client not initialized")
             return
 
         try:
@@ -120,7 +131,7 @@ class TelegramNotifier:
             )
 
             if not activities:
-                await self.send_message("📈 No trades in the last 30 days")
+                self.send_message("📈 No trades in the last 30 days")
                 return
 
             message = "📈 <b>Recent Trades (Last 30 Days)</b>\n\n"
@@ -140,15 +151,15 @@ class TelegramNotifier:
                     f"Total: ${price * qty:.2f}\n\n"
                 )
 
-            await self.send_message(message)
+            self.send_message(message)
 
         except Exception as e:
-            await self.send_error_notification(f"Error fetching trades: {str(e)}")
+            self.send_error_notification(f"Error fetching trades: {str(e)}")
 
-    async def cmd_profits(self, update: telegram.Update, context) -> None:
+    def cmd_profits(self, update: telegram.Update, context) -> None:
         """Handle /profits command - Show total profits/losses in the last month."""
         if not self.trading_client:
-            await self.send_message("❌ Trading client not initialized")
+            self.send_message("❌ Trading client not initialized")
             return
 
         try:
@@ -163,7 +174,7 @@ class TelegramNotifier:
             )
 
             if not history:
-                await self.send_message("📊 No portfolio history available")
+                self.send_message("📊 No portfolio history available")
                 return
 
             # Calculate total P/L
@@ -182,15 +193,15 @@ class TelegramNotifier:
                 f"Worst Day: ${worst_day:+,.2f}\n"
             )
 
-            await self.send_message(message)
+            self.send_message(message)
 
         except Exception as e:
-            await self.send_error_notification(f"Error fetching profits: {str(e)}")
+            self.send_error_notification(f"Error fetching profits: {str(e)}")
 
-    async def cmd_balance(self, update: telegram.Update, context) -> None:
+    def cmd_balance(self, update: telegram.Update, context) -> None:
         """Handle /balance command - Show account balance and performance."""
         if not self.trading_client:
-            await self.send_message("❌ Trading client not initialized")
+            self.send_message("❌ Trading client not initialized")
             return
 
         try:
@@ -219,7 +230,7 @@ class TelegramNotifier:
                 f"Account Status: {account.status}"
             )
 
-            await self.send_message(message)
+            self.send_message(message)
 
         except Exception as e:
-            await self.send_error_notification(f"Error fetching account balance: {str(e)}") 
+            self.send_error_notification(f"Error fetching account balance: {str(e)}") 
