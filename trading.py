@@ -43,16 +43,18 @@ class TradingBot:
         # Initialize Telegram bot
         self.notifier.set_trading_client(self.trading_client)
         
-    def start(self):
+    async def start(self):
         """Start the Telegram bot."""
         self.notifier.start()
         logger.info("Telegram bot started")
+        return self
         
-    def stop(self):
+    async def stop(self):
         """Stop the Telegram bot and clean up resources."""
         self.notifier.stop()
         self.db.close()
         logger.info("Telegram bot stopped and database connection closed")
+        return self
         
     async def update_trading_symbols(self):
         """Update the list of trading symbols based on screening criteria."""

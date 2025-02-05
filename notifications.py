@@ -30,11 +30,25 @@ class TelegramNotifier:
 
     def start(self):
         """Start the bot."""
-        self.updater.start_polling()
+        try:
+            # Start the updater in a non-blocking way
+            self.updater.start_polling(drop_pending_updates=True)
+            logger.info("Telegram bot updater started")
+            return self
+        except Exception as e:
+            logger.error(f"Failed to start Telegram bot: {str(e)}")
+            raise
 
     def stop(self):
         """Stop the bot."""
-        self.updater.stop()
+        try:
+            # Stop the updater
+            self.updater.stop()
+            logger.info("Telegram bot updater stopped")
+            return self
+        except Exception as e:
+            logger.error(f"Failed to stop Telegram bot: {str(e)}")
+            raise
 
     def send_message(self, message: str) -> None:
         """
