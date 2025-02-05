@@ -19,6 +19,7 @@ services:
         value: ${ALPACA_SECRET_KEY}
       - key: ALPACA_BASE_URL
         scope: RUN_TIME
+        type: GENERAL
         value: "https://paper-api.alpaca.markets"
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_TIME
