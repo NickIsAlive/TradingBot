@@ -14,7 +14,7 @@ async def start_health_check():
     
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, 'localhost', 8000)
+    site = web.TCPSite(runner, '0.0.0.0', 8000)
     await site.start()
     
-    logger.info("Health check server started on http://localhost:8000/health") 
+    logger.info("Health check server started on http://0.0.0.0:8000/health") 
