@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 import pandas as pd
 import ssl
+import socket
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -14,23 +15,27 @@ class TradingDatabase:
     def __init__(self):
         """Initialize database connection using environment variables."""
         try:
-            # Create SSL context for secure connection
-            ssl_context = ssl.create_default_context()
-            ssl_context.verify_mode = ssl.CERT_REQUIRED
-
-            # Connection parameters for Supabase
+            # Use the full connection URL from Supabase
+            database_url = os.getenv('DATABASE_URL')
+            
+            # Additional connection parameters
             conn_params = {
-                'host': os.getenv('DB_HOST'),
-                'database': os.getenv('DB_NAME'),
-                'user': os.getenv('DB_USER'),
-                'password': os.getenv('DB_PASSWORD').strip('"'),  # Remove any quotes
-                'port': os.getenv('DB_PORT', '5432'),
                 'sslmode': 'require',
-                'connect_timeout': 10
+                'connect_timeout': 15,
+                'keepalives': 1,
+                'keepalives_idle': 30,
+                'keepalives_interval': 10,
+                'keepalives_count': 5
             }
 
-            logger.info(f"Connecting to Supabase database at {conn_params['host']}:{conn_params['port']}")
-            self.conn = psycopg2.connect(**conn_params)
+            logger.info(f"Connecting to Supabase database...")
+            
+            # Establish connection using the full URL
+            self.conn = psycopg2.connect(
+                database_url,
+                **conn_params
+            )
+            
             logger.info("Successfully connected to Supabase database")
             
             self.create_tables()
