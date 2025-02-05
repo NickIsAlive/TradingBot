@@ -21,5 +21,4 @@ SQLAlchemy>=2.0.25  # SQL toolkit and ORM
 pandas>=2.1.0  # Updated pandas requirement for better SQL integration
 asyncpg>=0.29.0  # Async PostgreSQL driver
 supabase>=2.13.0  # Latest Supabase Python client
-python-jose[cryptography]>=3.3.0  # For JWT handling
-postgrest-py>=0.10.6  # PostgREST client 
+python-jose[cryptography]>=3.3.0  # For JWT handling 
