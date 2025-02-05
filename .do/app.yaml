@@ -18,6 +18,7 @@ services:
     internal_ports:
       - 8000
     envs:
+      # API Keys and Authentication
       - key: ALPACA_API_KEY
         scope: RUN_TIME
         type: SECRET
@@ -26,6 +27,10 @@ services:
         scope: RUN_TIME
         type: SECRET
         value: ${ALPACA_SECRET_KEY}
+      - key: ALPACA_BASE_URL
+        scope: RUN_TIME
+        type: SECRET
+        value: ${ALPACA_BASE_URL}
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_TIME
         type: SECRET
@@ -33,4 +38,77 @@ services:
       - key: TELEGRAM_CHAT_ID
         scope: RUN_TIME
         type: SECRET
-        value: ${TELEGRAM_CHAT_ID} 
+        value: ${TELEGRAM_CHAT_ID}
+      
+      # Position Management
+      - key: MAX_POSITIONS
+        scope: RUN_TIME
+        value: "5"
+      - key: POSITION_SIZE
+        scope: RUN_TIME
+        value: "0.1"
+      - key: MAX_POSITION_PCT
+        scope: RUN_TIME
+        value: "0.20"
+      
+      # Stop Loss and Trailing Settings
+      - key: INITIAL_STOP_LOSS_PCT
+        scope: RUN_TIME
+        value: "0.03"
+      - key: TRAILING_STOP_PCT
+        scope: RUN_TIME
+        value: "0.02"
+      - key: TRAILING_GAIN_PCT
+        scope: RUN_TIME
+        value: "0.01"
+      
+      # Technical Analysis Parameters
+      - key: MIN_PERIOD
+        scope: RUN_TIME
+        value: "10"
+      - key: MAX_PERIOD
+        scope: RUN_TIME
+        value: "50"
+      - key: MIN_STD
+        scope: RUN_TIME
+        value: "1.5"
+      - key: MAX_STD
+        scope: RUN_TIME
+        value: "3.0"
+      
+      # Stock Screening Criteria
+      - key: MIN_PRICE
+        scope: RUN_TIME
+        value: "10"
+      - key: MAX_PRICE
+        scope: RUN_TIME
+        value: "200"
+      - key: MIN_VOLUME
+        scope: RUN_TIME
+        value: "500000"
+      - key: MIN_VOLATILITY
+        scope: RUN_TIME
+        value: "0.2"
+      - key: MIN_DOLLAR_VOLUME
+        scope: RUN_TIME
+        value: "5000000"
+      - key: MAX_SPREAD_PCT
+        scope: RUN_TIME
+        value: "0.002"
+      - key: MIN_AVG_VOLUME
+        scope: RUN_TIME
+        value: "100000"
+      - key: VOLUME_RATIO_THRESHOLD
+        scope: RUN_TIME
+        value: "1.5"
+      
+      # Operation Settings
+      - key: SCREEN_INTERVAL
+        scope: RUN_TIME
+        value: "3600"
+      - key: CHECK_INTERVAL
+        scope: RUN_TIME
+        value: "300"
+      - key: LOG_FILE
+        scope: RUN_TIME
+        value: "trading_bot.log" 
