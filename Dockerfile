@@ -1,12 +1,10 @@
-# ===============================
-# Stage 1: Builder
-# ===============================
-FROM --platform=linux/amd64 ubuntu:22.04 AS builder
+# Use a minimal base image
+FROM ubuntu:22.04
 
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install required system dependencies, including wget
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
@@ -22,8 +20,16 @@ RUN apt-get update && apt-get install -y \
     libtool \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip, setuptools, and wheel
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# Install TA-Lib from source
+WORKDIR /tmp
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib \
+    && ./configure --prefix=/usr \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
 
 # Ensure TA-Lib is linked correctly
 RUN ldconfig
@@ -37,58 +43,11 @@ WORKDIR /home/trader
 RUN python3 -m venv venv
 ENV PATH="/home/trader/venv/bin:$PATH"
 
-# Install TA-Lib using the script from the gist
-WORKDIR /tmp
-RUN wget https://gist.githubusercontent.com/preritdas/7b1a4fcd6b3835e80cea4c27295464d4/raw/install-talib-ubuntu.sh \
-    && chmod +x install-talib-ubuntu.sh \
-    && ./install-talib-ubuntu.sh \
-    && rm install-talib-ubuntu.sh
-
-# Ensure TA-Lib is linked correctly
-RUN ldconfig
-
 # Upgrade pip and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir wheel setuptools \
-    && pip install --no-cache-dir numpy==1.26.4 \
-    && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir ta-lib
-
-# ===============================
-# Stage 2: Final Image
-# ===============================
-FROM --platform=linux/amd64 ubuntu:22.04
-
-# Avoid prompts from apt
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install runtime dependencies, including wget
-RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-venv \
-    libgomp1 \
-    curl \
-    wget \
-    git \
-    unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy TA-Lib from builder
-COPY --from=builder /usr/lib/libta_lib.so* /usr/lib/
-COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
-
-# Ensure TA-Lib is correctly linked
-RUN ldconfig
-
-# Create a non-root user
-RUN useradd -m trader
-USER trader
-WORKDIR /home/trader
-
-# Copy Python virtual environment from builder
-COPY --from=builder /home/trader/venv /home/trader/venv
-ENV PATH="/home/trader/venv/bin:$PATH"
+    && pip install --no-cache-dir -r requirements.txt
 
 # Set working directory and copy application files
 WORKDIR /home/trader/app
