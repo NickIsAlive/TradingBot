@@ -55,7 +55,8 @@ RUN mkdir -p /home/trader/.postgresql && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir wheel setuptools \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir netifaces socket
 
 # Set working directory and copy application files
 WORKDIR /home/trader/app

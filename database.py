@@ -26,11 +26,28 @@ class TradingDatabase:
             if not all([db_host, db_user, db_password, db_name]):
                 raise ValueError("Missing required database connection parameters")
 
-            logger.info(f"Connecting to Supabase database at {db_host}...")
+            # Perform DNS resolution with IPv4 preference
+            try:
+                # Attempt to resolve host to IPv4 address
+                addrinfo = socket.getaddrinfo(
+                    db_host, 
+                    db_port, 
+                    socket.AF_INET,  # Force IPv4
+                    socket.SOCK_STREAM
+                )
+                
+                # Extract the first IPv4 address
+                ipv4_address = addrinfo[0][4][0]
+                logger.info(f"Resolved {db_host} to IPv4 address: {ipv4_address}")
+            except Exception as dns_error:
+                logger.error(f"DNS resolution error: {dns_error}")
+                ipv4_address = db_host  # Fallback to original hostname if resolution fails
+
+            logger.info(f"Connecting to Supabase database at {ipv4_address}...")
             
             # Establish connection using individual parameters
             conn_params = {
-                'host': db_host,
+                'host': ipv4_address,
                 'user': db_user,
                 'password': db_password,
                 'database': db_name,
@@ -39,13 +56,41 @@ class TradingDatabase:
                 'connect_timeout': 15
             }
 
+            # Add additional connection diagnostics
+            try:
+                # Test socket connection before psycopg2 connection
+                test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                test_socket.settimeout(10)
+                test_socket.connect((ipv4_address, db_port))
+                test_socket.close()
+                logger.info("Socket connection successful")
+            except socket.error as socket_error:
+                logger.error(f"Socket connection failed: {socket_error}")
+                raise
+
+            # Log connection details (be careful with sensitive info)
+            logger.info(f"Connecting with user: {db_user}, host: {ipv4_address}, port: {db_port}")
+
             self.conn = psycopg2.connect(**conn_params)
             
             logger.info("Successfully connected to Supabase database")
             
             self.create_tables()
         except Exception as e:
-            logger.error(f"Failed to connect to Supabase database: {str(e)}")
+            logger.error(f"Comprehensive connection failure: {str(e)}")
+            # Log additional system network information
+            try:
+                import platform
+                logger.error(f"Platform: {platform.platform()}")
+                logger.error(f"Python version: {platform.python_version()}")
+                
+                # Attempt to get network interfaces
+                import netifaces
+                interfaces = netifaces.interfaces()
+                logger.error(f"Network interfaces: {interfaces}")
+            except ImportError:
+                logger.error("Could not import additional diagnostic modules")
+            
             raise
 
     def create_tables(self):
