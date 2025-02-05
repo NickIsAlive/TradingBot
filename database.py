@@ -15,26 +15,31 @@ class TradingDatabase:
     def __init__(self):
         """Initialize database connection using environment variables."""
         try:
-            # Use the full connection URL from Supabase, removing any extra quotes
-            database_url = os.getenv('DATABASE_URL', '').strip('"\'')
-            
-            # Validate the connection URL
-            if not database_url:
-                raise ValueError("DATABASE_URL is not set in the environment")
+            # Extract connection parameters from environment
+            db_host = os.getenv('DB_HOST', '').strip()
+            db_user = os.getenv('DB_USER', '').strip()
+            db_password = os.getenv('DB_PASSWORD', '').strip()
+            db_name = os.getenv('DB_NAME', '').strip()
+            db_port = int(os.getenv('DB_PORT', 5432))
 
-            # Additional connection parameters
+            # Validate connection parameters
+            if not all([db_host, db_user, db_password, db_name]):
+                raise ValueError("Missing required database connection parameters")
+
+            logger.info(f"Connecting to Supabase database at {db_host}...")
+            
+            # Establish connection using individual parameters
             conn_params = {
+                'host': db_host,
+                'user': db_user,
+                'password': db_password,
+                'database': db_name,
+                'port': db_port,
                 'sslmode': 'require',
                 'connect_timeout': 15
             }
 
-            logger.info(f"Connecting to Supabase database...")
-            
-            # Establish connection using the full URL
-            self.conn = psycopg2.connect(
-                database_url,
-                **conn_params
-            )
+            self.conn = psycopg2.connect(**conn_params)
             
             logger.info("Successfully connected to Supabase database")
             
