@@ -6,7 +6,7 @@ FROM --platform=linux/amd64 ubuntu:22.04 AS builder
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Install system dependencies, including TA-Lib
 RUN apt-get update && apt-get install -y \
     software-properties-common \
     build-essential \
@@ -16,22 +16,10 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libgomp1 \
     wget \
-    autoconf \
+    unzip \
+    ta-lib \
+    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Install TA-Lib from source
-WORKDIR /tmp
-RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
-    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
-    && cd ta-lib/ \
-    && sed -i.bak "s|0.00000001|0.000000001|g" src/ta_func/ta_utility.h \
-    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src|" Makefile.am \
-    && sed -i.bak "s|SUBDIRS = src tools ta-lib-config|SUBDIRS = src|" Makefile.in \
-    && CFLAGS="-fPIC" ./configure --prefix=/usr \
-    && make -j$(nproc) \
-    && make install \
-    && cd .. \
-    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
 # Create a non-root user
 RUN useradd -m trader
@@ -43,7 +31,7 @@ RUN python3 -m venv venv
 ENV PATH="/home/trader/venv/bin:$PATH"
 
 # Upgrade pip and install Python dependencies
-COPY --chown=trader:trader requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir wheel setuptools \
     && pip install --no-cache-dir numpy==1.26.4 \
@@ -63,22 +51,14 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \
     libgomp1 \
+    ta-lib \
+    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
 RUN useradd -m trader
 USER trader
 WORKDIR /home/trader
-
-# Create .local directories
-RUN mkdir -p /home/trader/.local/{lib,include}
-
-# Copy TA-Lib from builder
-COPY --from=builder /usr/lib/libta_lib.so* /home/trader/.local/lib/
-COPY --from=builder /usr/include/ta-lib /home/trader/.local/include/ta-lib
-
-# Set up library path for TA-Lib
-ENV LD_LIBRARY_PATH="/home/trader/.local/lib:$LD_LIBRARY_PATH"
 
 # Copy Python virtual environment from builder
 COPY --from=builder /home/trader/venv /home/trader/venv
