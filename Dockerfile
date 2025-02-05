@@ -18,9 +18,14 @@ WORKDIR /tmp
 RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && tar -xvzf ta-lib-0.4.0-src.tar.gz \
     && cd ta-lib/ \
-    && ./configure \
+    && ./configure --prefix=/usr \
     && make \
-    && make install
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
+
+# Update library cache
+RUN ldconfig
 
 # Create and activate virtual environment
 RUN python3 -m pip install --upgrade pip \
@@ -31,8 +36,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install Python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir wheel setuptools numpy \
-    && export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH \
-    && ldconfig \
     && pip install --no-cache-dir ta-lib \
     && pip install --no-cache-dir -r requirements.txt
 
@@ -45,14 +48,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     python3 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy necessary files from builder
-COPY --from=builder /usr/local/lib/libta_lib* /usr/local/lib/
-COPY --from=builder /usr/local/include/ta-lib /usr/local/include/ta-lib
+COPY --from=builder /usr/lib/libta* /usr/lib/
+COPY --from=builder /usr/include/ta-lib /usr/include/ta-lib
 
-# Set up environment
-ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+# Set up environment and update library cache
+ENV LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
 RUN ldconfig
 
 # Copy virtual environment from builder
