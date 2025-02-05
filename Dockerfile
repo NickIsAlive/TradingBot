@@ -26,7 +26,8 @@ RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
     && cd .. \
     && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
-# Update library cache
+# Update library cache and set up environment
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 RUN ldconfig
 
 # Create and activate virtual environment
@@ -38,8 +39,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install Python packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir wheel setuptools numpy \
-    && pip install --no-cache-dir ta-lib \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir ta-lib
 
 # Final stage
 FROM --platform=linux/amd64 ubuntu:22.04
