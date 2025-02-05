@@ -95,5 +95,8 @@ services:
         value: "trading_bot.log"
     health_check:
       http_path: /health
-      initial_delay_seconds: 30
+      initial_delay_seconds: 60
       period_seconds: 60
+      success_threshold: 1
+      failure_threshold: 3
+      timeout_seconds: 10
