@@ -16,20 +16,20 @@ RUN apt-get update && apt-get install -y \
     wget \
     git \
     unzip \
-    autoconf \
-    libtool \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TA-Lib version 0.6.4 from GitHub
+# Install TA-Lib version 0.6.4 from GitHub using CMake
 WORKDIR /tmp
 RUN wget https://github.com/ta-lib/ta-lib/archive/refs/tags/v0.6.4.tar.gz \
     && tar -xzf v0.6.4.tar.gz \
     && cd ta-lib-0.6.4 \
-    && autoreconf -fi \  # Generate the configure script\
-    && ./configure --prefix=/usr \
+    && mkdir build \
+    && cd build \
+    && cmake .. \
     && make \
     && make install \
-    && cd .. \
+    && cd ../.. \
     && rm -rf ta-lib-0.6.4 v0.6.4.tar.gz
 
 # Ensure TA-Lib is linked correctly
