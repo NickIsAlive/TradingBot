@@ -15,7 +15,6 @@ from notifications import TelegramNotifier
 from screener import StockScreener
 from database import TradingDatabase
 import talib
-from telegram.ext import Application
 
 logger = logging.getLogger(__name__)
 
@@ -42,24 +41,17 @@ class TradingBot:
         self.active_trades = {}  # Track active trade IDs for database updates
         
         # Initialize Telegram bot
-        self.telegram_app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
         self.notifier.set_trading_client(self.trading_client)
         
-    async def start(self):
-        """Start the Telegram bot and set up commands."""
-        await self.notifier.setup_commands(self.telegram_app)
-        await self.telegram_app.initialize()
-        await self.telegram_app.start()
-        await self.telegram_app.updater.start_polling()
+    def start(self):
+        """Start the Telegram bot."""
+        self.notifier.start()
+        logger.info("Telegram bot started")
         
-        logger.info("Telegram bot started and commands initialized")
-        
-    async def stop(self):
+    def stop(self):
         """Stop the Telegram bot and clean up resources."""
-        await self.telegram_app.stop()
-        await self.telegram_app.shutdown()
+        self.notifier.stop()
         self.db.close()
-        
         logger.info("Telegram bot stopped and database connection closed")
         
     async def update_trading_symbols(self):
