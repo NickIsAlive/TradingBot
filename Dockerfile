@@ -16,10 +16,18 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libgomp1 \
     wget \
-    unzip \
-    ta-lib \
-    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install TA-Lib from source
+WORKDIR /tmp
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xvzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib/ \
+    && ./configure --prefix=/usr \
+    && make -j$(nproc) \
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib-0.4.0-src.tar.gz ta-lib/
 
 # Create a non-root user
 RUN useradd -m trader
@@ -31,7 +39,7 @@ RUN python3 -m venv venv
 ENV PATH="/home/trader/venv/bin:$PATH"
 
 # Upgrade pip and install Python dependencies
-COPY requirements.txt .
+COPY --chown=trader:trader requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir wheel setuptools \
     && pip install --no-cache-dir numpy==1.26.4 \
@@ -51,14 +59,19 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \
     libgomp1 \
-    ta-lib \
-    libta-lib-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
 RUN useradd -m trader
 USER trader
 WORKDIR /home/trader
+
+# Copy TA-Lib from builder
+COPY --from=builder /usr/lib/libta_lib* /home/trader/.local/lib/
+COPY --from=builder /usr/include/ta-lib /home/trader/.local/include/ta-lib
+
+# Set up library path for TA-Lib
+ENV LD_LIBRARY_PATH="/home/trader/.local/lib:$LD_LIBRARY_PATH"
 
 # Copy Python virtual environment from builder
 COPY --from=builder /home/trader/venv /home/trader/venv
