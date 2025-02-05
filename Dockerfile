@@ -43,6 +43,19 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir ta-lib
 
+# Install TA-Lib from source
+WORKDIR /tmp
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz \
+    && tar -xzf ta-lib-0.4.0-src.tar.gz \
+    && cd ta-lib \
+    && wget 'http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.guess;hb=HEAD' -O './config.guess' \
+    && wget 'http://git.savannah.gnu.org/gitweb/?p=config.git;a=blob_plain;f=config.sub;hb=HEAD' -O './config.sub' \
+    && ./configure --prefix=/usr \
+    && make \
+    && make install \
+    && cd .. \
+    && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+
 # ===============================
 # Stage 2: Final Image
 # ===============================
