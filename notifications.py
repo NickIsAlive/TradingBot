@@ -66,15 +66,18 @@ class TelegramNotifier:
         except TelegramError as e:
             logger.error(f"Failed to send Telegram message: {str(e)}")
 
-    def send_trade_notification(self, symbol: str, action: str, price: float, quantity: float) -> None:
+    def send_trade_notification(self, symbol: str, action: str, price: float, quantity: float, execution_time: datetime, market_conditions: str, sentiment_score: float) -> None:
         """
-        Send a formatted trade notification.
+        Send a detailed trade notification.
         
         Args:
             symbol (str): The trading symbol
             action (str): The trade action (BUY/SELL)
             price (float): The execution price
             quantity (float): The quantity traded
+            execution_time (datetime): The time of trade execution
+            market_conditions (str): Current market conditions
+            sentiment_score (float): Sentiment score at the time of trade
         """
         message = (
             f"🤖 <b>Trade Executed</b>\n\n"
@@ -82,7 +85,10 @@ class TelegramNotifier:
             f"Action: {action}\n"
             f"Price: ${price:.2f}\n"
             f"Quantity: {quantity}\n"
-            f"Total Value: ${price * quantity:.2f}"
+            f"Total Value: ${price * quantity:.2f}\n"
+            f"Execution Time: {execution_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Market Conditions: {market_conditions}\n"
+            f"Sentiment Score: {sentiment_score:.2f}"
         )
         self.send_message(message)
 
@@ -247,4 +253,48 @@ class TelegramNotifier:
             self.send_message(message)
 
         except Exception as e:
-            self.send_error_notification(f"Error fetching account balance: {str(e)}") 
+            self.send_error_notification(f"Error fetching account balance: {str(e)}")
+
+    def send_account_summary(self) -> None:
+        """
+        Send a comprehensive account summary.
+        """
+        if not self.trading_client:
+            self.send_message("❌ Trading client not initialized")
+            return
+
+        try:
+            account = self.trading_client.get_account()
+            equity = float(account.equity)
+            cash = float(account.cash)
+            starting_capital = float(account.initial_margin)
+            pct_gain = ((equity - starting_capital) / starting_capital) * 100 if starting_capital > 0 else 0
+            buying_power = float(account.buying_power)
+
+            message = (
+                f"💼 <b>Account Summary</b>\n\n"
+                f"Equity: ${equity:,.2f}\n"
+                f"Cash: ${cash:,.2f}\n"
+                f"Starting Capital: ${starting_capital:,.2f}\n"
+                f"Total Return: {pct_gain:+.2f}%\n"
+                f"Buying Power: ${buying_power:,.2f}\n"
+                f"Account Status: {account.status}"
+            )
+
+            self.send_message(message)
+
+        except Exception as e:
+            self.send_error_notification(f"Error fetching account summary: {str(e)}")
+
+    def send_market_update(self, market_summary: str) -> None:
+        """
+        Send a market update message.
+        
+        Args:
+            market_summary (str): Summary of current market conditions
+        """
+        message = (
+            f"🌐 <b>Market Update</b>\n\n"
+            f"{market_summary}"
+        )
+        self.send_message(message) 
