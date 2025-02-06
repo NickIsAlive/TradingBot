@@ -43,8 +43,11 @@ class TechnicalAnalysis:
             Tuple[pd.Series, pd.Series, pd.Series]: Upper band, middle band, lower band
         """
         try:
-            middle_band = talib.SMA(prices, timeperiod=self.period)
-            std_dev = talib.STDDEV(prices, timeperiod=self.period)
+            # Convert to numpy array for TA-Lib
+            price_values = prices.values
+            
+            middle_band = pd.Series(talib.SMA(price_values, timeperiod=self.period), index=prices.index)
+            std_dev = pd.Series(talib.STDDEV(price_values, timeperiod=self.period), index=prices.index)
             
             upper_band = middle_band + (std_dev * self.num_std)
             lower_band = middle_band - (std_dev * self.num_std)
@@ -141,40 +144,50 @@ class TechnicalAnalysis:
             logger.error(f"Error calculating momentum: {str(e)}")
             raise
 
-    def calculate_rsi(self, prices: pd.Series, timeperiod: int = 14) -> float:
+    def calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
         """
-        Calculate the Relative Strength Index (RSI).
+        Calculate RSI for the given price series.
         
         Args:
             prices (pd.Series): Series of closing prices
-            timeperiod (int): Time period for RSI calculation
+            period (int): RSI period
             
         Returns:
-            float: RSI value
+            pd.Series: RSI values
         """
         try:
-            rsi = talib.RSI(prices, timeperiod=timeperiod)
-            return rsi[-1] if not np.isnan(rsi[-1]) else 50.0  # Default to neutral if NaN
+            # Convert to numpy array for TA-Lib
+            price_values = prices.values
+            rsi = pd.Series(talib.RSI(price_values, timeperiod=period), index=prices.index)
+            return rsi
         except Exception as e:
             logger.error(f"Error calculating RSI: {str(e)}")
-            return 50.0  # Default to neutral
+            raise
 
-    def calculate_macd(self, prices: pd.Series) -> Tuple[float, float, float]:
+    def calculate_macd(self, prices: pd.Series) -> Tuple[pd.Series, pd.Series, pd.Series]:
         """
-        Calculate the MACD (Moving Average Convergence Divergence).
+        Calculate MACD for the given price series.
         
         Args:
             prices (pd.Series): Series of closing prices
             
         Returns:
-            Tuple[float, float, float]: MACD, MACD signal, MACD histogram
+            Tuple[pd.Series, pd.Series, pd.Series]: MACD line, signal line, histogram
         """
         try:
-            macd, macd_signal, macd_hist = talib.MACD(prices)
-            return macd[-1], macd_signal[-1], macd_hist[-1]
+            # Convert to numpy array for TA-Lib
+            price_values = prices.values
+            macd, signal, hist = talib.MACD(price_values)
+            
+            # Convert back to pandas Series with original index
+            macd = pd.Series(macd, index=prices.index)
+            signal = pd.Series(signal, index=prices.index)
+            hist = pd.Series(hist, index=prices.index)
+            
+            return macd, signal, hist
         except Exception as e:
             logger.error(f"Error calculating MACD: {str(e)}")
-            return 0.0, 0.0, 0.0  # Default to neutral
+            raise
 
     def calculate_position_size(self, equity: float, price: float, atr: float, risk_pct: float = 0.01) -> float:
         """

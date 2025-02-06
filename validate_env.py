@@ -2,6 +2,7 @@ import os
 from typing import List, Dict
 import logging
 from dotenv import load_dotenv
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def validate_alpaca_credentials() -> bool:
         logger.error(f"Failed to validate Alpaca credentials: {str(e)}")
         return False
 
-def validate_telegram_config() -> bool:
+async def validate_telegram_config() -> bool:
     """
     Validate Telegram configuration by attempting to send a test message.
     
@@ -113,7 +114,7 @@ def validate_telegram_config() -> bool:
         message = "🤖 Trading Bot: Environment validation test message"
         
         logger.info(f"Attempting to send test message to chat ID: {chat_id}")
-        bot.send_message(chat_id=chat_id, text=message)
+        await bot.send_message(chat_id=chat_id, text=message)
         logger.info("Successfully sent Telegram test message")
         return True
             
@@ -128,7 +129,7 @@ def validate_telegram_config() -> bool:
     
     return False
 
-def main():
+async def main():
     """Validate all configurations before bot startup."""
     # Set up logging
     logging.basicConfig(
@@ -152,7 +153,7 @@ def main():
         return False
     
     # Validate Telegram configuration
-    if not validate_telegram_config():
+    if not await validate_telegram_config():
         logger.error("Failed to validate Telegram configuration")
         return False
     
@@ -160,6 +161,4 @@ def main():
     return True
 
 if __name__ == "__main__":
-    success = main()
-    if not success:
-        exit(1)
+    asyncio.run(main())

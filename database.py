@@ -251,7 +251,8 @@ class TradingDatabase:
                     COUNT(*) FILTER (WHERE profit_loss > 0) as winning_trades,
                     COUNT(*) FILTER (WHERE profit_loss < 0) as losing_trades,
                     MAX(profit_loss) as largest_gain,
-                    MIN(profit_loss) as largest_loss
+                    MIN(profit_loss) as largest_loss,
+                    SUM(profit_loss) as daily_returns
                 FROM trades
                 WHERE DATE(exit_time) = %s
             """, (today,))
@@ -267,6 +268,28 @@ class TradingDatabase:
             """, (today,))
             market_data = cur.fetchone()
 
+            # Get starting and ending equity from Alpaca
+            try:
+                from alpaca.trading.client import TradingClient
+                import config
+                
+                trading_client = TradingClient(
+                    api_key=config.ALPACA_API_KEY,
+                    secret_key=config.ALPACA_SECRET_KEY,
+                    paper=True
+                )
+                account = trading_client.get_account()
+                ending_equity = float(account.equity)
+                starting_equity = float(account.initial_margin)
+            except Exception as e:
+                logger.error(f"Error getting account equity: {str(e)}")
+                ending_equity = 100000.0  # Default values if we can't get actual equity
+                starting_equity = 100000.0
+
+            # Calculate daily returns percentage
+            daily_returns = trade_stats['daily_returns'] if trade_stats['daily_returns'] else 0
+            daily_returns_pct = (daily_returns / starting_equity * 100) if starting_equity > 0 else 0
+
             # Insert or update daily performance
             cur.execute("""
                 INSERT INTO daily_performance (
@@ -278,9 +301,8 @@ class TradingDatabase:
                 )
                 ON CONFLICT (date) DO UPDATE SET
                     ending_equity = EXCLUDED.ending_equity,
-                    daily_returns = EXCLUDED.ending_equity - daily_performance.starting_equity,
-                    daily_returns_pct = (EXCLUDED.ending_equity - daily_performance.starting_equity) / 
-                                      daily_performance.starting_equity * 100,
+                    daily_returns = EXCLUDED.daily_returns,
+                    daily_returns_pct = EXCLUDED.daily_returns_pct,
                     num_trades = EXCLUDED.num_trades,
                     winning_trades = EXCLUDED.winning_trades,
                     losing_trades = EXCLUDED.losing_trades,
@@ -290,10 +312,10 @@ class TradingDatabase:
                     spy_performance_pct = EXCLUDED.spy_performance_pct
             """, (
                 today,
-                trade_stats['starting_equity'],
-                trade_stats['ending_equity'],
-                trade_stats['daily_returns'],
-                trade_stats['daily_returns_pct'],
+                starting_equity,
+                ending_equity,
+                daily_returns,
+                daily_returns_pct,
                 trade_stats['total_trades'],
                 trade_stats['winning_trades'],
                 trade_stats['losing_trades'],

@@ -12,6 +12,7 @@ from trading import TradingBot
 from health_check import start_health_check
 from validate_env import main as validate_config
 import os
+from notifications import SingleInstanceException
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'INFO')
@@ -122,7 +123,7 @@ def is_market_hours(market: str = 'NYSE') -> bool:
         logger.error(f"Error checking market hours for {market}: {str(e)}")
         raise
 
-def process_trading_symbols(bot, config):
+async def process_trading_symbols(bot, config):
     """Process trading symbols."""
     logger.info("Processing trading symbols...")
     
@@ -142,33 +143,37 @@ def process_trading_symbols(bot, config):
             continue
             
         # Process symbol and update allocation
-        bot.process_symbol(symbol)
+        await bot.process_symbol(symbol)
         market_allocation[market] = current_allocation + 1
     
     logger.info("Finished processing symbols")
     logger.info(f"Market Allocation: {market_allocation}")
 
-def main():
+async def main():
     """Main function to run the trading bot."""
     logger.info("Starting trading bot...")
     
     # Validate configuration
-    if not validate_config():
+    if not await validate_config():
         logger.error("Configuration validation failed. Exiting...")
         sys.exit(1)
     
-    # Start health check server
-    start_health_check()
-    
-    bot = TradingBot()
-    
-    # Start Telegram bot
-    bot.start()
-    logger.info("Telegram bot started successfully")
-    
-    last_screen_time = 0
-    
     try:
+        # Start health check server
+        start_health_check()
+        
+        bot = TradingBot()
+        logger.info("Initializing Telegram notifier...")
+        await bot.notifier.initialize()
+        
+        if not bot.notifier.application:
+            raise RuntimeError("Telegram application failed to initialize")
+            
+        await bot.start()
+        logger.info("Telegram bot started successfully")
+        
+        last_screen_time = 0
+        
         while True:
             try:
                 # Get current time with proper timezone handling
@@ -198,27 +203,31 @@ def main():
                     
                     if bot.trading_symbols:
                         logger.info("Processing trading symbols...")
-                        
-                        process_trading_symbols(bot, config)
+                        await process_trading_symbols(bot, config)
                     else:
                         logger.warning("No trading symbols available")
                 else:
                     logger.info("All checked markets are closed. Waiting...")
                 
                 # Wait for the next check interval
-                time_module.sleep(config.CHECK_INTERVAL)
+                await asyncio.sleep(config.CHECK_INTERVAL)
                 
             except Exception as e:
                 logger.error(f"Error in main loop: {str(e)}")
-                time_module.sleep(config.CHECK_INTERVAL)
+                await asyncio.sleep(config.CHECK_INTERVAL)
+    except SingleInstanceException as e:
+        logger.error(f"Cannot start bot: {str(e)}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}")
+        sys.exit(1)
     finally:
-        # Ensure Telegram bot is stopped properly
-        bot.stop()
+        await bot.stop()
         logger.info("Telegram bot stopped")
 
 if __name__ == "__main__":
     try:
-        main()
+        asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:

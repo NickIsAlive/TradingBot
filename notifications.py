@@ -1,178 +1,261 @@
 import logging
 from telegram import Bot, Update
 from telegram.error import TelegramError, Conflict, NetworkError
-from telegram.ext import Updater, CommandHandler, CallbackContext, MessageHandler, Filters
+from telegram.ext import Application, CommandHandler, CallbackContext, MessageHandler, filters, JobQueue
 import config
 from datetime import datetime, timedelta
 import pandas as pd
-from queue import Queue
+from queue import Queue, Empty
 import pytz
 import time
+import os
+import fcntl
+import atexit
+import threading
+import asyncio
 
 logger = logging.getLogger(__name__)
 
+class SingleInstanceException(Exception):
+    pass
+
 class TelegramNotifier:
     _instance = None
+    _lock = threading.Lock()
     _initialized = False
-    _update_id = None
-    
+    _lock_file = '/tmp/telegram_bot.lock'
+    _lock_fd = None
+    _event_loop = None
+
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(TelegramNotifier, cls).__new__(cls)
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self):
-        if not self._initialized:
+        with self._lock:
+            if not self._initialized:
+                self._initialized = True
+                self._start_time = time.time()
+                self.application = None
+                self.trading_client = None
+                self.message_queue = Queue()
+                self._running = True
+                self._event_loop = asyncio.new_event_loop()
+                self._start_message_worker()
+
+    async def initialize(self):
+        """Async initialization of the bot."""
+        await self._initialize_bot()
+
+    async def _initialize_bot(self):
+        try:
+            logger.info("Starting async bot initialization...")
+            
+            # Verify token exists
+            if not config.TELEGRAM_BOT_TOKEN:
+                raise ValueError("Telegram bot token is not configured")
+            
+            logger.info("Bot token verified, proceeding with bot initialization...")
+            
+            # Initialize bot and application
             self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
             self.chat_id = config.TELEGRAM_CHAT_ID
-            self.trading_client = None  # Will be set by TradingBot
-            self.update_queue = Queue()
-            self.updater = None
-            self._initialized = True
-            self._is_running = False
-            self._update_id = None
+            self._ensure_single_instance()
+            
+            logger.info("Creating Application instance...")
+            try:
+                self.application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+                # Initialize application only once here
+                await self.application.initialize()
+                logger.info("Application instance created and initialized successfully")
+            except Exception as e:
+                logger.error(f"Error creating Application instance: {str(e)}")
+                raise
+            
+            logger.info("Setting up commands...")
+            await self.setup_commands()
+            
+            atexit.register(self._cleanup)
+            logger.info("Telegram bot initialized successfully")
+            logger.info("Async bot initialization completed")
+            
+        except Exception as e:
+            logger.error(f"Error initializing TelegramNotifier: {str(e)}")
+            self.application = None  # Ensure application is None on error
+            raise
+
+    def _ensure_single_instance(self):
+        try:
+            self._lock_fd = open(self._lock_file, 'w')
+            try:
+                fcntl.lockf(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except IOError:
+                logger.error("Another instance is already running")
+                raise SingleInstanceException("Another bot instance is already running")
+            
+            # Write PID and start time
+            self._lock_fd.write(f"{os.getpid()},{self._start_time}")
+            self._lock_fd.flush()
+            
+            logger.info("Lock acquired, bot instance is running")
+            
+        except Exception as e:
+            logger.error(f"Error in single instance check: {str(e)}")
+            raise
+
+    def _cleanup(self):
+        try:
+            # Signal worker thread to stop
+            self._running = False
+            
+            if self._lock_fd:
+                if not hasattr(self, '_start_time'):
+                    self._start_time = 0
+                
+                try:
+                    with open(self._lock_file, 'r') as f:
+                        pid, start_time = f.read().split(',')
+                        if float(start_time) != self._start_time:
+                            logger.warning("Cleaning up stale lock from previous instance")
+                except Exception as e:
+                    logger.error(f"Error reading lock file: {str(e)}")
+                
+                try:
+                    fcntl.lockf(self._lock_fd, fcntl.LOCK_UN)
+                    self._lock_fd.close()
+                    os.unlink(self._lock_file)
+                except Exception as e:
+                    logger.error(f"Error releasing lock: {str(e)}")
+            
+            # Wait for worker thread with timeout
+            if hasattr(self, 'worker_thread'):
+                try:
+                    self.worker_thread.join(timeout=2)
+                except Exception as e:
+                    logger.error(f"Error joining worker thread: {str(e)}")
+            
+            logger.info("Full cleanup completed")
+            
+        except Exception as e:
+            logger.error(f"Cleanup error: {str(e)}")
+
+    async def start(self):
+        """Start the Telegram bot with retry logic."""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Remove initialization here since it's already done
+                await self.application.start()
+                await self.application.updater.start_polling()
+                logger.info("Telegram bot started successfully")
+                return
+            except NetworkError as e:
+                logger.warning(f"Connection attempt {attempt+1}/{max_retries} failed: {str(e)}")
+                await asyncio.sleep(2 ** attempt)
+        raise ConnectionError("Failed to start Telegram bot after multiple attempts")
+
+    async def stop(self):
+        """Stop the Telegram bot and clean up resources."""
+        try:
+            # Signal the message worker to stop
+            self._running = False
+            
+            if self.application:
+                # Stop the application first
+                await self.application.stop()
+                await self.application.shutdown()
+                # Wait for any pending updates to complete
+                await asyncio.sleep(1)
+                self.application = None
+            
+            # Wait for message queue to empty with timeout
+            try:
+                self.message_queue.join()
+            except Exception as e:
+                logger.error(f"Error waiting for message queue: {str(e)}")
+            
+            logger.info("Telegram bot stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping Telegram bot: {str(e)}")
+            raise
+
+    def send_message(self, message: str) -> None:
+        """Add message to queue instead of sending directly."""
+        self.message_queue.put(message)
 
     def set_trading_client(self, trading_client):
         """Set the trading client for accessing account and trade information."""
         self.trading_client = trading_client
 
-    def error_handler(self, update: Update, context: CallbackContext) -> None:
+    async def error_handler(self, update: Update, context: CallbackContext) -> None:
         """Handle errors in the dispatcher."""
         try:
             if isinstance(context.error, Conflict):
                 logger.warning("Update conflict detected, attempting to recover...")
-                if self.updater:
-                    self.stop()
-                    time.sleep(2)
-                    self.start()
+                if self.application:
+                    await self.stop()
+                    await asyncio.sleep(2)
+                    await self.start()
             elif isinstance(context.error, NetworkError):
                 logger.warning("Network error detected, waiting before retry...")
-                time.sleep(5)
+                await asyncio.sleep(5)
             else:
                 logger.error(f"Update {update} caused error: {context.error}")
         except Exception as e:
             logger.error(f"Error in error handler: {str(e)}")
 
-    def setup_commands(self):
+    async def setup_commands(self):
         """Set up command handlers for the bot."""
-        if not self.updater:
-            logger.error("Updater not initialized")
-            return
-        
-        dp = self.updater.dispatcher
-        
-        # Add command handlers
-        dp.add_handler(CommandHandler("symbols", self.cmd_symbols))
-        dp.add_handler(CommandHandler("trades", self.cmd_trades))
-        dp.add_handler(CommandHandler("profits", self.cmd_profits))
-        dp.add_handler(CommandHandler("balance", self.cmd_balance))
-        dp.add_handler(CommandHandler("help", self.cmd_help))
-        
-        # Add error handler
-        dp.add_error_handler(self.error_handler)
-        
-        # Add fallback handler for unrecognized commands
-        dp.add_handler(MessageHandler(Filters.command, self.unknown_command))
+        try:
+            if not self.application:
+                logger.error("Application not initialized")
+                raise RuntimeError("Application not initialized")
+            
+            # Remove the initialization here since it's already done
+            # Add command handlers directly to application
+            self.application.add_handler(CommandHandler("symbols", self.cmd_symbols))
+            self.application.add_handler(CommandHandler("trades", self.cmd_trades))
+            self.application.add_handler(CommandHandler("profits", self.cmd_profits))
+            self.application.add_handler(CommandHandler("balance", self.cmd_balance))
+            self.application.add_handler(CommandHandler("help", self.cmd_help))
+            
+            # Add error handler
+            self.application.add_error_handler(self.error_handler)
+            
+            # Add fallback handler for unrecognized commands
+            self.application.add_handler(MessageHandler(filters.COMMAND, self.unknown_command))
+            
+            logger.info("Command handlers set up successfully")
+            
+        except Exception as e:
+            logger.error(f"Error setting up commands: {str(e)}")
+            raise
 
     def unknown_command(self, update: Update, context: CallbackContext) -> None:
         """Handle unknown commands."""
         self.send_message("❌ Unknown command. Use /help to see available commands.")
 
-    def start(self):
-        """Start the bot."""
-        try:
-            if self._is_running:
-                logger.warning("Bot is already running")
-                return self
-            
-            # Stop any existing updater and wait for cleanup
-            self.stop()
-            time.sleep(1)
-            
-            # Create new updater with specific settings
-            self.updater = Updater(
-                token=config.TELEGRAM_BOT_TOKEN,
-                use_context=True,
-                request_kwargs={
-                    'read_timeout': 30,
-                    'connect_timeout': 30
-                }
-            )
-            
-            # Set up commands and error handlers
-            self.setup_commands()
-            
-            # Start polling with clean state and specific settings
-            self.updater.start_polling(
-                drop_pending_updates=True,
-                timeout=30,
-                read_latency=2.0,
-                clean=True
-            )
-            
-            self._is_running = True
-            logger.info("Telegram bot updater started")
-            return self
-            
-        except Exception as e:
-            logger.error(f"Failed to start Telegram bot: {str(e)}")
-            self.updater = None
-            self._is_running = False
-            raise
-
-    def stop(self):
-        """Stop the bot."""
-        try:
-            if self.updater and self._is_running:
-                # Stop polling and wait for the updater to stop
-                self.updater.stop()
-                
-                # Wait for the updater to fully stop with timeout
-                start_time = time.time()
-                while not self.updater.is_idle and time.time() - start_time < 10:
-                    time.sleep(0.1)
-                
-                # Force cleanup if still not idle
-                if not self.updater.is_idle:
-                    logger.warning("Force cleaning up updater")
-                    if self.updater.dispatcher:
-                        self.updater.dispatcher.handlers.clear()
-                        self.updater.dispatcher = None
-                
-                self.updater = None
-                self._is_running = False
-                self._update_id = None
-                
-                logger.info("Telegram bot updater stopped and cleaned up")
-            return self
-        except Exception as e:
-            logger.error(f"Failed to stop Telegram bot: {str(e)}")
-            self.updater = None
-            self._is_running = False
-            self._update_id = None
-            raise
-
-    def send_message(self, message: str) -> None:
-        """Send a message to the configured Telegram chat."""
-        try:
-            self.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')
-        except TelegramError as e:
-            logger.error(f"Failed to send Telegram message: {str(e)}")
-
     def send_trade_notification(self, symbol: str, action: str, price: float, quantity: float, execution_time: datetime, market_conditions: str, sentiment_score: float) -> None:
         """Send a detailed trade notification."""
-        message = (
-            f"🤖 <b>Trade Executed</b>\n\n"
-            f"Symbol: {symbol}\n"
-            f"Action: {action}\n"
-            f"Price: ${price:.2f}\n"
-            f"Quantity: {quantity}\n"
-            f"Total Value: ${price * quantity:.2f}\n"
-            f"Execution Time: {execution_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
-            f"Market Conditions: {market_conditions}\n"
-            f"Sentiment Score: {sentiment_score:.2f}"
-        )
-        self.send_message(message)
+        try:
+            # Add HTML escaping for special characters
+            symbol = symbol.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            message = (
+                f"🤖 <b>Trade Executed</b>\n\n"
+                f"▪️ Symbol: <code>{symbol}</code>\n"
+                f"▪️ Action: {action.upper()}\n"
+                f"▪️ Price: ${price:.2f}\n"
+                f"▪️ Quantity: {quantity:.2f}\n"
+                f"▪️ Time: {execution_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
+                f"▪️ Conditions: {market_conditions}\n"
+                f"▪️ Sentiment: {sentiment_score:.2f}/1.0"
+            )
+            self.send_message(message)
+        except Exception as e:
+            logger.error(f"Error formatting trade notification: {str(e)}")
 
     def send_error_notification(self, error_message: str) -> None:
         """Send an error notification."""
@@ -181,11 +264,16 @@ class TelegramNotifier:
 
     def cmd_symbols(self, update: Update, context: CallbackContext) -> None:
         """Handle /symbols command - Show current trading symbols."""
-        if not self.trading_client:
-            self.send_message("❌ Trading client not initialized")
-            return
-
         try:
+            if not self.trading_client:
+                self.send_message("❌ Trading client not initialized")
+                return
+
+            account = self.trading_client.get_account()
+            if not account:
+                self.send_message("🔴 Unable to connect to trading account")
+                return
+            
             positions = self.trading_client.get_all_positions()
             if not positions:
                 self.send_message("📊 No active positions")
@@ -208,7 +296,8 @@ class TelegramNotifier:
             self.send_message(message)
 
         except Exception as e:
-            self.send_error_notification(f"Error fetching symbols: {str(e)}")
+            logger.error(f"Error in /symbols command: {str(e)}")
+            self.send_error_notification(f"Command error: {str(e)}")
 
     def cmd_trades(self, update: Update, context: CallbackContext) -> None:
         """Handle /trades command - Show trades from the last month."""
@@ -220,23 +309,25 @@ class TelegramNotifier:
             end = datetime.now(pytz.UTC)
             start = end - timedelta(days=30)
             
-            activities = self.trading_client.get_activities(
-                activity_types=['FILL'],
-                start=start,
-                end=end
+            # Get filled orders from the last 30 days using list_orders
+            orders = self.trading_client.list_orders(
+                status='closed',
+                after=start.isoformat(),
+                until=end.isoformat(),
+                limit=50
             )
 
-            if not activities:
+            if not orders:
                 self.send_message("📈 No trades in the last 30 days")
                 return
 
             message = "📈 <b>Recent Trades (Last 30 Days)</b>\n\n"
-            for activity in activities:
-                side = activity.side
-                symbol = activity.symbol
-                price = float(activity.price)
-                qty = float(activity.qty)
-                timestamp = activity.timestamp.strftime('%Y-%m-%d %H:%M %Z')
+            for order in orders:
+                side = order.side
+                symbol = order.symbol
+                price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
+                qty = float(order.filled_qty) if order.filled_qty else 0.0
+                timestamp = order.filled_at.strftime('%Y-%m-%d %H:%M %Z') if order.filled_at else 'N/A'
                 
                 message += (
                     f"Date: {timestamp}\n"
@@ -250,7 +341,9 @@ class TelegramNotifier:
             self.send_message(message)
 
         except Exception as e:
-            self.send_error_notification(f"Error fetching trades: {str(e)}")
+            error_msg = f"Error fetching trades: {str(e)}"
+            logger.error(error_msg)
+            self.send_error_notification(error_msg)
 
     def cmd_profits(self, update: Update, context: CallbackContext) -> None:
         """Handle /profits command - Show total profits/losses in the last month."""
@@ -365,4 +458,41 @@ class TelegramNotifier:
     def send_market_update(self, market_summary: str) -> None:
         """Send a market update message."""
         message = f"📊 <b>Market Update</b>\n\n{market_summary}"
-        self.send_message(message) 
+        self.send_message(message)
+
+    def _start_message_worker(self):
+        """Start background thread to process messages."""
+        from threading import Thread
+        self.worker_thread = Thread(target=self._process_messages)
+        self.worker_thread.daemon = True
+        self.worker_thread.start()
+
+    async def _process_message(self, message: str) -> None:
+        """Process a single message asynchronously."""
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=message,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"Error sending message: {str(e)}")
+
+    def _process_messages(self):
+        """Process messages from the queue."""
+        asyncio.set_event_loop(self._event_loop)
+        
+        while self._running:
+            try:
+                message = self.message_queue.get(timeout=1.0)  # 1 second timeout
+                self._event_loop.run_until_complete(self._process_message(message))
+                self.message_queue.task_done()
+                time.sleep(0.5)  # Rate limiting
+            except Empty:
+                continue  # No messages, continue checking _running flag
+            except Exception as e:
+                logger.error(f"Error processing message queue: {str(e)}")
+                self.message_queue.task_done()
+        
+        self._event_loop.close()
+        logger.info("Message worker thread stopped") 

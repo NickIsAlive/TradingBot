@@ -15,7 +15,6 @@ from notifications import TelegramNotifier
 from screener import StockScreener
 from database import TradingDatabase
 import talib
-from gdelt_sentiment import GDELTClient
 import pytz
 import asyncio
 
@@ -39,10 +38,18 @@ class TradingBot:
         self._notifier = None  # Initialize as None
         self.screener = StockScreener(self.data_client)
         self.db = TradingDatabase()
-        self.gdelt_client = GDELTClient()  # Initialize GDELT client
         self.trading_symbols = []
         self.position_trackers = {}  # Track position metrics for trailing stops
         self.active_trades = {}  # Track active trade IDs for database updates
+        
+        # Initialize account info
+        try:
+            account = self.trading_client.get_account()
+            self.initial_equity = float(account.equity)
+            logger.info(f"Initial account equity: ${self.initial_equity:,.2f}")
+        except Exception as e:
+            logger.error(f"Error initializing account: {str(e)}")
+            self.initial_equity = 100000.0  # Default to 100k if can't get actual equity
         
     @property
     def notifier(self):
@@ -52,17 +59,15 @@ class TradingBot:
             self._notifier.set_trading_client(self.trading_client)
         return self._notifier
         
-    def start(self):
+    async def start(self):
         """Start the Telegram bot."""
-        self.notifier.start()
+        await self.notifier.start()
         logger.info("Telegram bot started")
         return self
         
-    def stop(self):
+    async def stop(self):
         """Stop the Telegram bot and clean up resources."""
-        if self._notifier:
-            self._notifier.stop()
-            self._notifier = None
+        await self.notifier.stop()
         self.db.close()
         logger.info("Telegram bot stopped and database connection closed")
         return self
@@ -269,38 +274,48 @@ class TradingBot:
             current_price: Current stock price
             
         Returns:
-            Quantity to trade
+            float: Quantity to trade
         """
         try:
+            # Get current account equity
             account = self.trading_client.get_account()
-            equity = float(account.equity)
+            current_equity = float(account.equity)
+            
+            if current_equity <= 0:
+                logger.error("Invalid account equity")
+                return 0
             
             # Get historical volatility
             df = self.get_historical_data(symbol)
+            if df.empty:
+                logger.error("No historical data available for volatility calculation")
+                return 0
+                
             returns = np.log(df['close'] / df['close'].shift(1))
             volatility = returns.std() * np.sqrt(252)
             
             # Adjust position size based on volatility
             # Lower volatility = larger position size
-            volatility_factor = 1 / (1 + volatility)
+            volatility_factor = 1 / (1 + volatility) if volatility > 0 else 0.5
             
-            # Calculate base position value
-            base_position_value = equity * config.POSITION_SIZE
+            # Calculate base position value using current equity
+            base_position_value = current_equity * config.POSITION_SIZE
             
             # Adjust for volatility
             adjusted_position_value = base_position_value * volatility_factor
             
             # Ensure we don't exceed maximum position size
-            max_position_value = equity * config.MAX_POSITION_PCT
+            max_position_value = current_equity * config.MAX_POSITION_PCT
             position_value = min(adjusted_position_value, max_position_value)
             
             # Calculate quantity
-            quantity = position_value / current_price
+            quantity = position_value / current_price if current_price > 0 else 0
             
+            logger.info(f"Calculated position size for {symbol}: {quantity:.2f} shares at ${current_price:.2f}")
             return quantity
             
         except Exception as e:
-            logger.error(f"Error calculating position size: {str(e)}")
+            logger.error(f"Error calculating position size for {symbol}: {str(e)}")
             return 0
 
     def initialize_position_tracker(self, symbol: str, entry_price: float, 
@@ -431,48 +446,24 @@ class TradingBot:
             logger.error(f"Error adjusting position size for regime: {str(e)}")
             return base_quantity
 
-    def process_symbol(self, symbol: str) -> None:
-        """
-        Process a single symbol for trading opportunities with enhanced analysis.
-        
-        Args:
-            symbol (str): The trading symbol
-        """
+    async def process_symbol(self, symbol: str) -> None:
+        """Process a single symbol for trading opportunities."""
         try:
-            # Get historical data
+            # Get current account info for position sizing
+            account = self.trading_client.get_account()
+            current_equity = float(account.equity)
+            
+            # Get historical data and calculate indicators
             df = self.get_historical_data(symbol)
             if df.empty:
+                logger.warning(f"No historical data available for {symbol}")
                 return
-                
-            current_price = df.close.iloc[-1]
             
-            # Calculate indicators
-            upper_band, middle_band, lower_band = self.technical_analysis.calculate_bollinger_bands(df.close)
-            rsi = self.technical_analysis.calculate_rsi(df.close)
-            macd, macd_signal, macd_hist = self.technical_analysis.calculate_macd(df.close)
-            atr = talib.ATR(df.high.values, df.low.values, df.close.values, timeperiod=14)[-1]
+            # Calculate technical indicators
+            signal, current_price, rsi, atr = self.analyze_symbol(df)
             
-            # Fetch sentiment data
-            sentiment_df = self.gdelt_client.fetch_news_data(query=symbol, start_date='20230101', end_date='20230131')
-            sentiment_score = 0.0
-            if not sentiment_df.empty:
-                # Calculate refined sentiment score
-                sentiment_score = self.gdelt_client.calculate_sentiment_score(sentiment_df)
-                logger.info(f"Refined sentiment score for {symbol}: {sentiment_score}")
-                
-            # Adjust trading logic based on sentiment
-            if sentiment_score > 0.5:
-                logger.info(f"Positive sentiment detected for {symbol}, increasing confidence in buy signals.")
-            elif sentiment_score < -0.5:
-                logger.info(f"Negative sentiment detected for {symbol}, increasing caution in buy signals.")
-                
-            # Generate trading signal
-            signal = self.technical_analysis.generate_signal(
-                price=current_price,
-                upper_band=upper_band.iloc[-1],
-                lower_band=lower_band.iloc[-1],
-                rsi=rsi
-            )
+            if not signal:
+                return
             
             # Check current position
             position = self.check_position(symbol)
@@ -483,7 +474,7 @@ class TradingBot:
                     symbol, 
                     current_price,
                     atr=atr,
-                    rsi=rsi
+                    rsi=rsi.iloc[-1] if isinstance(rsi, pd.Series) else rsi[-1] if isinstance(rsi, np.ndarray) else rsi
                 )
                 
                 if should_exit:
@@ -492,7 +483,7 @@ class TradingBot:
                     
                     # Record trade exit in database
                     if symbol in self.active_trades:
-                        self.db.record_trade_exit(
+                        await self.db.record_trade_exit(
                             self.active_trades[symbol],
                             current_price,
                             exit_reason
@@ -500,30 +491,24 @@ class TradingBot:
                         del self.active_trades[symbol]
                         del self.position_trackers[symbol]
             
-            elif signal in ['BUY', 'STRONG_BUY']:
-                # Calculate position size
-                account = self.trading_client.get_account()
-                equity = float(account.equity)
-                position_size = self.technical_analysis.calculate_position_size(
-                    equity=equity,
-                    price=current_price,
-                    atr=atr
-                )
+            elif signal == 'BUY':
+                # Calculate position size using current equity
+                position_size = self.calculate_position_size(symbol, current_price)
                 
                 if position_size > 0:
                     # Execute buy order
-                    logger.info(f"Executing {signal} for {symbol} - Price: ${current_price:.2f}, RSI: {rsi:.1f}, MACD: {macd:.2f}")
+                    logger.info(f"Executing {signal} for {symbol} - Price: ${current_price:.2f}, Size: {position_size:.2f} shares")
                     self.execute_trade(symbol, 'BUY', position_size)
                     
                     # Record trade entry in database
-                    trade_id = self.db.record_trade_entry(
+                    trade_id = await self.db.record_trade_entry(
                         symbol=symbol,
                         side='BUY',
                         quantity=position_size,
                         price=current_price,
                         strategy='ENHANCED_BOLLINGER',
                         market_regime=self.detect_market_regime(df),
-                        rsi=rsi,
+                        rsi=rsi[-1] if isinstance(rsi, (pd.Series, np.ndarray)) else rsi,
                         atr=atr
                     )
                     
@@ -539,12 +524,12 @@ class TradingBot:
                     )
             
             # Update daily performance metrics
-            self.db.update_daily_performance()
+            await self.db.update_daily_performance()
                 
         except Exception as e:
-            error_msg = f"Error processing {symbol}: {str(e)}"
-            logger.error(error_msg)
-            self.notifier.send_error_notification(error_msg)
+            logger.error(f"Error processing {symbol}: {str(e)}")
+            if self._notifier:
+                self._notifier.send_error_notification(f"Error processing {symbol}: {str(e)}")
 
     def execute_trade(self, symbol: str, side: str, quantity: float) -> None:
         """
@@ -609,3 +594,40 @@ class TradingBot:
         except Exception as e:
             logger.error(f"Error checking market conditions: {str(e)}")
             return False  # Conservative approach - assume unfavorable if can't check 
+
+    def analyze_symbol(self, df: pd.DataFrame) -> tuple:
+        """
+        Analyze a symbol and generate trading signals.
+        
+        Args:
+            df (pd.DataFrame): DataFrame with historical price data
+            
+        Returns:
+            tuple: (signal, current_price, rsi, atr)
+        """
+        try:
+            # Ensure we're working with pandas Series
+            close_series = pd.Series(df.close)
+            high_series = pd.Series(df.high)
+            low_series = pd.Series(df.low)
+            current_price = close_series.iloc[-1]
+            
+            # Calculate indicators
+            upper_band, middle_band, lower_band = self.technical_analysis.calculate_bollinger_bands(close_series)
+            rsi = self.technical_analysis.calculate_rsi(close_series)
+            macd, macd_signal, macd_hist = self.technical_analysis.calculate_macd(close_series)
+            atr = talib.ATR(high_series.values, low_series.values, close_series.values, timeperiod=14)[-1]
+            
+            # Generate trading signal
+            signal = self.technical_analysis.generate_signal(
+                price=current_price,
+                upper_band=upper_band.iloc[-1] if isinstance(upper_band, pd.Series) else upper_band[-1],
+                lower_band=lower_band.iloc[-1] if isinstance(lower_band, pd.Series) else lower_band[-1],
+                rsi=rsi.iloc[-1] if isinstance(rsi, pd.Series) else rsi[-1] if isinstance(rsi, np.ndarray) else rsi
+            )
+            
+            return signal, current_price, rsi, atr
+            
+        except Exception as e:
+            logger.error(f"Error analyzing symbol: {str(e)}")
+            return None, None, None, None 
