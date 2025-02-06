@@ -1,7 +1,8 @@
 import logging
 import telegram
 from telegram.error import TelegramError
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram import Update
 import config
 from datetime import datetime, timedelta
 import pandas as pd
@@ -27,11 +28,11 @@ class TelegramNotifier:
         dp.add_handler(CommandHandler("trades", self.cmd_trades))
         dp.add_handler(CommandHandler("profits", self.cmd_profits))
         dp.add_handler(CommandHandler("balance", self.cmd_balance))
+        dp.add_handler(CommandHandler("help", self.cmd_help))
 
     def start(self):
         """Start the bot."""
         try:
-            # Start the updater in a non-blocking way
             self.updater.start_polling(drop_pending_updates=True)
             logger.info("Telegram bot updater started")
             return self
@@ -42,7 +43,6 @@ class TelegramNotifier:
     def stop(self):
         """Stop the bot."""
         try:
-            # Stop the updater
             self.updater.stop()
             logger.info("Telegram bot updater stopped")
             return self
@@ -51,34 +51,14 @@ class TelegramNotifier:
             raise
 
     def send_message(self, message: str) -> None:
-        """
-        Send a message to the configured Telegram chat.
-        
-        Args:
-            message (str): The message to send
-        """
+        """Send a message to the configured Telegram chat."""
         try:
-            self.bot.send_message(
-                chat_id=self.chat_id,
-                text=message,
-                parse_mode='HTML'
-            )
+            self.bot.send_message(chat_id=self.chat_id, text=message, parse_mode='HTML')
         except TelegramError as e:
             logger.error(f"Failed to send Telegram message: {str(e)}")
 
     def send_trade_notification(self, symbol: str, action: str, price: float, quantity: float, execution_time: datetime, market_conditions: str, sentiment_score: float) -> None:
-        """
-        Send a detailed trade notification.
-        
-        Args:
-            symbol (str): The trading symbol
-            action (str): The trade action (BUY/SELL)
-            price (float): The execution price
-            quantity (float): The quantity traded
-            execution_time (datetime): The time of trade execution
-            market_conditions (str): Current market conditions
-            sentiment_score (float): Sentiment score at the time of trade
-        """
+        """Send a detailed trade notification."""
         message = (
             f"🤖 <b>Trade Executed</b>\n\n"
             f"Symbol: {symbol}\n"
@@ -93,16 +73,11 @@ class TelegramNotifier:
         self.send_message(message)
 
     def send_error_notification(self, error_message: str) -> None:
-        """
-        Send an error notification.
-        
-        Args:
-            error_message (str): The error message to send
-        """
+        """Send an error notification."""
         message = f"⚠️ <b>Error Alert</b>\n\n{error_message}"
         self.send_message(message)
 
-    def cmd_symbols(self, update: telegram.Update, context) -> None:
+    def cmd_symbols(self, update: Update, context: CallbackContext) -> None:
         """Handle /symbols command - Show current trading symbols."""
         if not self.trading_client:
             self.send_message("❌ Trading client not initialized")
@@ -133,14 +108,13 @@ class TelegramNotifier:
         except Exception as e:
             self.send_error_notification(f"Error fetching symbols: {str(e)}")
 
-    def cmd_trades(self, update: telegram.Update, context) -> None:
+    def cmd_trades(self, update: Update, context: CallbackContext) -> None:
         """Handle /trades command - Show trades from the last month."""
         if not self.trading_client:
             self.send_message("❌ Trading client not initialized")
             return
 
         try:
-            # Get trades from the last 30 days
             end = datetime.now()
             start = end - timedelta(days=30)
             
@@ -176,14 +150,13 @@ class TelegramNotifier:
         except Exception as e:
             self.send_error_notification(f"Error fetching trades: {str(e)}")
 
-    def cmd_profits(self, update: telegram.Update, context) -> None:
+    def cmd_profits(self, update: Update, context: CallbackContext) -> None:
         """Handle /profits command - Show total profits/losses in the last month."""
         if not self.trading_client:
             self.send_message("❌ Trading client not initialized")
             return
 
         try:
-            # Get portfolio history for the last month
             end = datetime.now()
             start = end - timedelta(days=30)
             
@@ -197,11 +170,9 @@ class TelegramNotifier:
                 self.send_message("📊 No portfolio history available")
                 return
 
-            # Calculate total P/L
             total_pl = float(history.profit_loss[-1])
             total_pl_pct = float(history.profit_loss_pct[-1])
 
-            # Get daily P/L
             daily_pl = pd.Series(history.profit_loss)
             best_day = daily_pl.max()
             worst_day = daily_pl.min()
@@ -218,7 +189,7 @@ class TelegramNotifier:
         except Exception as e:
             self.send_error_notification(f"Error fetching profits: {str(e)}")
 
-    def cmd_balance(self, update: telegram.Update, context) -> None:
+    def cmd_balance(self, update: Update, context: CallbackContext) -> None:
         """Handle /balance command - Show account balance and performance."""
         if not self.trading_client:
             self.send_message("❌ Trading client not initialized")
@@ -227,26 +198,19 @@ class TelegramNotifier:
         try:
             account = self.trading_client.get_account()
             
-            # Calculate performance metrics
             equity = float(account.equity)
             cash = float(account.cash)
-            starting_capital = float(account.initial_margin)  # Using initial margin as starting capital
-            
-            # Calculate percentage gain from starting capital
+            starting_capital = float(account.initial_margin)
             pct_gain = ((equity - starting_capital) / starting_capital) * 100 if starting_capital > 0 else 0
-            
-            # Calculate buying power and day trading buying power
             buying_power = float(account.buying_power)
-            day_trade_buying_power = float(account.daytrading_buying_power) if account.daytrading_buying_power else 0
 
             message = (
                 f"💼 <b>Account Summary</b>\n\n"
                 f"Equity: ${equity:,.2f}\n"
                 f"Cash: ${cash:,.2f}\n"
                 f"Starting Capital: ${starting_capital:,.2f}\n"
-                f"Total Return: {pct_gain:+.2f}%\n\n"
+                f"Total Return: {pct_gain:+.2f}%\n"
                 f"Buying Power: ${buying_power:,.2f}\n"
-                f"Day Trading Buying Power: ${day_trade_buying_power:,.2f}\n"
                 f"Account Status: {account.status}"
             )
 
@@ -254,6 +218,18 @@ class TelegramNotifier:
 
         except Exception as e:
             self.send_error_notification(f"Error fetching account balance: {str(e)}")
+
+    def cmd_help(self, update: Update, context: CallbackContext) -> None:
+        """Handle /help command - List available commands."""
+        message = (
+            "ℹ️ <b>Available Commands</b>\n\n"
+            "/symbols - Show current trading symbols\n"
+            "/trades - Show trades from the last month\n"
+            "/profits - Show total profits/losses in the last month\n"
+            "/balance - Show account balance and performance\n"
+            "/help - Show this help message"
+        )
+        self.send_message(message)
 
     def send_account_summary(self) -> None:
         """
