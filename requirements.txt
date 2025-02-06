@@ -27,3 +27,4 @@ netifaces>=0.11.0
 requests>=2.31.0
 textblob
 psutil>=5.9.0 
+flask>=3.0.0
