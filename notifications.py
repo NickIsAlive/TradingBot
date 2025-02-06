@@ -1,7 +1,7 @@
 import logging
 from telegram import Bot, Update
-from telegram.error import TelegramError
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.error import TelegramError, Conflict, NetworkError
+from telegram.ext import Updater, CommandHandler, CallbackContext, MessageHandler, Filters
 import config
 from datetime import datetime, timedelta
 import pandas as pd
@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 class TelegramNotifier:
     _instance = None
     _initialized = False
+    _update_id = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -29,10 +30,28 @@ class TelegramNotifier:
             self.updater = None
             self._initialized = True
             self._is_running = False
+            self._update_id = None
 
     def set_trading_client(self, trading_client):
         """Set the trading client for accessing account and trade information."""
         self.trading_client = trading_client
+
+    def error_handler(self, update: Update, context: CallbackContext) -> None:
+        """Handle errors in the dispatcher."""
+        try:
+            if isinstance(context.error, Conflict):
+                logger.warning("Update conflict detected, attempting to recover...")
+                if self.updater:
+                    self.stop()
+                    time.sleep(2)
+                    self.start()
+            elif isinstance(context.error, NetworkError):
+                logger.warning("Network error detected, waiting before retry...")
+                time.sleep(5)
+            else:
+                logger.error(f"Update {update} caused error: {context.error}")
+        except Exception as e:
+            logger.error(f"Error in error handler: {str(e)}")
 
     def setup_commands(self):
         """Set up command handlers for the bot."""
@@ -42,11 +61,22 @@ class TelegramNotifier:
         
         dp = self.updater.dispatcher
         
+        # Add command handlers
         dp.add_handler(CommandHandler("symbols", self.cmd_symbols))
         dp.add_handler(CommandHandler("trades", self.cmd_trades))
         dp.add_handler(CommandHandler("profits", self.cmd_profits))
         dp.add_handler(CommandHandler("balance", self.cmd_balance))
         dp.add_handler(CommandHandler("help", self.cmd_help))
+        
+        # Add error handler
+        dp.add_error_handler(self.error_handler)
+        
+        # Add fallback handler for unrecognized commands
+        dp.add_handler(MessageHandler(Filters.command, self.unknown_command))
+
+    def unknown_command(self, update: Update, context: CallbackContext) -> None:
+        """Handle unknown commands."""
+        self.send_message("❌ Unknown command. Use /help to see available commands.")
 
     def start(self):
         """Start the bot."""
@@ -54,24 +84,36 @@ class TelegramNotifier:
             if self._is_running:
                 logger.warning("Bot is already running")
                 return self
-                
+            
             # Stop any existing updater and wait for cleanup
             self.stop()
-            
-            # Wait a moment to ensure cleanup is complete
             time.sleep(1)
             
-            # Create new updater
-            self.updater = Updater(token=config.TELEGRAM_BOT_TOKEN, use_context=True)
+            # Create new updater with specific settings
+            self.updater = Updater(
+                token=config.TELEGRAM_BOT_TOKEN,
+                use_context=True,
+                request_kwargs={
+                    'read_timeout': 30,
+                    'connect_timeout': 30
+                }
+            )
             
-            # Set up commands
+            # Set up commands and error handlers
             self.setup_commands()
             
-            # Start polling with clean state
-            self.updater.start_polling(drop_pending_updates=True)
+            # Start polling with clean state and specific settings
+            self.updater.start_polling(
+                drop_pending_updates=True,
+                timeout=30,
+                read_latency=2.0,
+                clean=True
+            )
+            
             self._is_running = True
             logger.info("Telegram bot updater started")
             return self
+            
         except Exception as e:
             logger.error(f"Failed to start Telegram bot: {str(e)}")
             self.updater = None
@@ -85,19 +127,21 @@ class TelegramNotifier:
                 # Stop polling and wait for the updater to stop
                 self.updater.stop()
                 
-                # Wait for the updater to fully stop
-                if hasattr(self.updater, 'is_idle'):
-                    while not self.updater.is_idle:
-                        time.sleep(0.1)
+                # Wait for the updater to fully stop with timeout
+                start_time = time.time()
+                while not self.updater.is_idle and time.time() - start_time < 10:
+                    time.sleep(0.1)
                 
-                # Clear handlers
-                if self.updater.dispatcher:
-                    self.updater.dispatcher.handlers.clear()
-                    self.updater.dispatcher = None
+                # Force cleanup if still not idle
+                if not self.updater.is_idle:
+                    logger.warning("Force cleaning up updater")
+                    if self.updater.dispatcher:
+                        self.updater.dispatcher.handlers.clear()
+                        self.updater.dispatcher = None
                 
-                # Clear the updater
                 self.updater = None
                 self._is_running = False
+                self._update_id = None
                 
                 logger.info("Telegram bot updater stopped and cleaned up")
             return self
@@ -105,6 +149,7 @@ class TelegramNotifier:
             logger.error(f"Failed to stop Telegram bot: {str(e)}")
             self.updater = None
             self._is_running = False
+            self._update_id = None
             raise
 
     def send_message(self, message: str) -> None:
