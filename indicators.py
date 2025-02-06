@@ -141,7 +141,42 @@ class TechnicalAnalysis:
             logger.error(f"Error calculating momentum: {str(e)}")
             raise
 
-    def calculate_position_size(self, equity: float, price: float, atr: float) -> float:
+    def calculate_rsi(self, prices: pd.Series, timeperiod: int = 14) -> float:
+        """
+        Calculate the Relative Strength Index (RSI).
+        
+        Args:
+            prices (pd.Series): Series of closing prices
+            timeperiod (int): Time period for RSI calculation
+            
+        Returns:
+            float: RSI value
+        """
+        try:
+            rsi = talib.RSI(prices, timeperiod=timeperiod)
+            return rsi[-1] if not np.isnan(rsi[-1]) else 50.0  # Default to neutral if NaN
+        except Exception as e:
+            logger.error(f"Error calculating RSI: {str(e)}")
+            return 50.0  # Default to neutral
+
+    def calculate_macd(self, prices: pd.Series) -> Tuple[float, float, float]:
+        """
+        Calculate the MACD (Moving Average Convergence Divergence).
+        
+        Args:
+            prices (pd.Series): Series of closing prices
+            
+        Returns:
+            Tuple[float, float, float]: MACD, MACD signal, MACD histogram
+        """
+        try:
+            macd, macd_signal, macd_hist = talib.MACD(prices)
+            return macd[-1], macd_signal[-1], macd_hist[-1]
+        except Exception as e:
+            logger.error(f"Error calculating MACD: {str(e)}")
+            return 0.0, 0.0, 0.0  # Default to neutral
+
+    def calculate_position_size(self, equity: float, price: float, atr: float, risk_pct: float = 0.01) -> float:
         """
         Calculate optimal position size based on ATR for risk management.
         
@@ -149,13 +184,14 @@ class TechnicalAnalysis:
             equity (float): Account equity
             price (float): Current stock price
             atr (float): Average True Range
+            risk_pct (float): Percentage of equity to risk per trade
             
         Returns:
             float: Recommended position size in shares
         """
         try:
-            # Risk 1% of equity per trade
-            risk_amount = equity * 0.01
+            # Risk a specified percentage of equity per trade
+            risk_amount = equity * risk_pct
             
             # Use 2 * ATR as stop loss distance
             stop_distance = 2 * atr

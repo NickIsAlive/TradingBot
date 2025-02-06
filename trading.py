@@ -15,6 +15,7 @@ from notifications import TelegramNotifier
 from screener import StockScreener
 from database import TradingDatabase
 import talib
+from gdelt_sentiment import GDELTClient
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class TradingBot:
         self.notifier = TelegramNotifier()
         self.screener = StockScreener(self.data_client)
         self.db = TradingDatabase()
+        self.gdelt_client = GDELTClient()  # Initialize GDELT client
         self.trading_symbols = []
         self.position_trackers = {}  # Track position metrics for trailing stops
         self.active_trades = {}  # Track active trade IDs for database updates
@@ -56,10 +58,26 @@ class TradingBot:
         logger.info("Telegram bot stopped and database connection closed")
         return self
         
-    async def update_trading_symbols(self):
-        """Update the list of trading symbols based on screening criteria."""
+    async def update_trading_symbols(self, 
+                                   markets: list = None, 
+                                   max_stocks: int = 5) -> None:
+        """
+        Update trading symbols with multi-market support.
+        
+        Args:
+            markets (list): List of markets to screen. Defaults to all configured markets.
+            max_stocks (int): Maximum number of stocks to trade
+        """
         try:
-            new_symbols = await self.screener.get_trading_candidates(max_stocks=config.MAX_POSITIONS)
+            # If no markets specified, use all configured markets
+            if markets is None:
+                markets = [market['name'] for market in config.MARKETS_TO_TRADE]
+            
+            # Get trading candidates across specified markets
+            new_symbols = await self.screener.get_trading_candidates(
+                max_stocks=max_stocks,
+                markets=markets
+            )
             
             if new_symbols:
                 old_symbols = set(self.trading_symbols)
@@ -71,6 +89,13 @@ class TradingBot:
                 
                 if added:
                     logger.info(f"Added new trading symbols: {added}")
+                    # Log market distribution of new symbols
+                    market_distribution = {}
+                    for symbol in added:
+                        market = self.get_symbol_market(symbol)
+                        market_distribution[market] = market_distribution.get(market, 0) + 1
+                    logger.info(f"Market distribution of new symbols: {market_distribution}")
+                
                 if removed:
                     logger.info(f"Removed trading symbols: {removed}")
                 
@@ -84,10 +109,35 @@ class TradingBot:
                     if removed:
                         message += f"Removed: {', '.join(removed)}"
                     await self.notifier.send_message(message)
-            
+        
         except Exception as e:
             logger.error(f"Error updating trading symbols: {str(e)}")
-            
+
+    def get_symbol_market(self, symbol: str) -> str:
+        """
+        Determine the market for a given stock symbol.
+        
+        Args:
+            symbol (str): Stock symbol
+        
+        Returns:
+            str: Market name (e.g., 'NYSE', 'NASDAQ')
+        """
+        # Market-specific symbol mappings
+        market_mappings = {
+            'NYSE': lambda s: not s.endswith('.L') and not s.endswith('.AX'),
+            'NASDAQ': lambda s: not s.endswith('.L') and not s.endswith('.AX'),
+            'LSE': lambda s: s.endswith('.L'),
+            'ASX': lambda s: s.endswith('.AX')
+        }
+        
+        # Default to NYSE if no specific mapping matches
+        for market, check_func in market_mappings.items():
+            if check_func(symbol):
+                return market
+        
+        return 'NYSE'  # Default fallback
+
     async def get_historical_data(self, symbol: str) -> pd.DataFrame:
         """
         Get historical price data for a symbol.
@@ -330,7 +380,7 @@ class TradingBot:
 
     async def process_symbol(self, symbol: str) -> None:
         """
-        Process a single symbol for trading opportunities with enhanced risk management.
+        Process a single symbol for trading opportunities with enhanced analysis.
         
         Args:
             symbol (str): The trading symbol
@@ -343,69 +393,39 @@ class TradingBot:
                 
             current_price = df.close.iloc[-1]
             
-            # Detect market regime
-            regime = self.detect_market_regime(df)
-            logger.info(f"Market regime for {symbol}: {regime}")
-            
             # Calculate indicators
-            rsi = talib.RSI(df.close.values, timeperiod=14)[-1]
-            sma20 = talib.SMA(df.close.values, timeperiod=20)[-1]
-            sma50 = talib.SMA(df.close.values, timeperiod=50)[-1]
+            upper_band, middle_band, lower_band = self.technical_analysis.calculate_bollinger_bands(df.close)
+            rsi = self.technical_analysis.calculate_rsi(df.close)
+            macd, macd_signal, macd_hist = self.technical_analysis.calculate_macd(df.close)
             atr = talib.ATR(df.high.values, df.low.values, df.close.values, timeperiod=14)[-1]
             
-            # Calculate volume ratio
-            avg_volume = df.volume.mean()
-            current_volume = df.volume.iloc[-1]
-            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
-            
-            # Record market data
-            await self.db.record_market_data(
-                symbol=symbol,
-                timestamp=df.index[-1],
-                ohlcv={
-                    'open': df.open.iloc[-1],
-                    'high': df.high.iloc[-1],
-                    'low': df.low.iloc[-1],
-                    'close': df.close.iloc[-1],
-                    'volume': df.volume.iloc[-1]
-                },
-                indicators={
-                    'rsi': rsi,
-                    'sma20': sma20,
-                    'sma50': sma50,
-                    'atr': atr,
-                    'market_regime': regime
-                }
-            )
-            
-            # Get optimal Bollinger Bands parameters
-            try:
-                params = self.screener.get_optimal_parameters(symbol)
-            except Exception as e:
-                logger.warning(f"Could not get optimal parameters for {symbol}, using defaults: {str(e)}")
-                params = {'period': 20, 'std': 2.0}
-            
-            # Calculate Bollinger Bands
-            self.technical_analysis.update_parameters(
-                period=params['period'],
-                num_std=params['std']
-            )
-            upper_band, middle_band, lower_band = self.technical_analysis.calculate_bollinger_bands(df.close)
-            
+            # Fetch sentiment data
+            sentiment_df = self.gdelt_client.fetch_news_data(query=symbol, start_date='20230101', end_date='20230131')
+            sentiment_score = 0.0
+            if not sentiment_df.empty:
+                # Calculate refined sentiment score
+                sentiment_score = self.gdelt_client.calculate_sentiment_score(sentiment_df)
+                logger.info(f"Refined sentiment score for {symbol}: {sentiment_score}")
+                
+            # Adjust trading logic based on sentiment
+            if sentiment_score > 0.5:
+                logger.info(f"Positive sentiment detected for {symbol}, increasing confidence in buy signals.")
+            elif sentiment_score < -0.5:
+                logger.info(f"Negative sentiment detected for {symbol}, increasing caution in buy signals.")
+                
             # Generate trading signal
             signal = self.technical_analysis.generate_signal(
-                current_price,
-                upper_band.iloc[-1],
-                lower_band.iloc[-1],
-                rsi=rsi,
-                volume_ratio=volume_ratio
+                price=current_price,
+                upper_band=upper_band.iloc[-1],
+                lower_band=lower_band.iloc[-1],
+                rsi=rsi
             )
             
             # Check current position
             position = self.check_position(symbol)
             
             if position:
-                # Enhanced exit logic
+                # Exit logic
                 should_exit, exit_reason = self.update_trailing_stops(
                     symbol, 
                     current_price,
@@ -426,34 +446,31 @@ class TradingBot:
                         )
                         del self.active_trades[symbol]
                         del self.position_trackers[symbol]
-                    
+            
             elif signal in ['BUY', 'STRONG_BUY']:
-                # Check overall market conditions
-                if not self.is_market_favorable():
-                    logger.info(f"Skipping {signal} signal for {symbol} due to unfavorable market conditions")
-                    return
-                    
                 # Calculate position size
-                base_quantity = self.calculate_position_size(symbol, current_price)
-                adjusted_quantity = self.adjust_position_size_for_regime(base_quantity, regime)
+                account = self.trading_client.get_account()
+                equity = float(account.equity)
+                position_size = self.technical_analysis.calculate_position_size(
+                    equity=equity,
+                    price=current_price,
+                    atr=atr
+                )
                 
-                if adjusted_quantity > 0:
+                if position_size > 0:
                     # Execute buy order
-                    logger.info(f"Executing {signal} for {symbol} - Price: ${current_price:.2f}, "
-                              f"RSI: {rsi:.1f}, Volume Ratio: {volume_ratio:.1f}, Regime: {regime}")
-                    
-                    await self.execute_trade(symbol, 'BUY', adjusted_quantity)
+                    logger.info(f"Executing {signal} for {symbol} - Price: ${current_price:.2f}, RSI: {rsi:.1f}, MACD: {macd:.2f}")
+                    await self.execute_trade(symbol, 'BUY', position_size)
                     
                     # Record trade entry in database
                     trade_id = await self.db.record_trade_entry(
                         symbol=symbol,
                         side='BUY',
-                        quantity=adjusted_quantity,
+                        quantity=position_size,
                         price=current_price,
-                        strategy='MEAN_REVERSION',
-                        market_regime=regime,
+                        strategy='ENHANCED_BOLLINGER',
+                        market_regime=self.detect_market_regime(df),
                         rsi=rsi,
-                        volume_ratio=volume_ratio,
                         atr=atr
                     )
                     
@@ -464,7 +481,7 @@ class TradingBot:
                     self.initialize_position_tracker(
                         symbol,
                         entry_price=current_price,
-                        quantity=adjusted_quantity,
+                        quantity=position_size,
                         atr=atr
                     )
             

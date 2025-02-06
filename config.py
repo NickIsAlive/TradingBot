@@ -49,4 +49,52 @@ MARKET_DATA_LOOKBACK = '1D'
 # Logging Configuration
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_LEVEL = 'INFO'
-LOG_FILE = 'trading_bot.log' 
+LOG_FILE = 'trading_bot.log'
+
+# Multi-Market Trading Configuration
+MARKETS_TO_TRADE = [
+    {
+        'name': 'NYSE',
+        'priority': 1,
+        'max_positions': 3,
+        'min_price': 10,
+        'max_price': 200,
+        'min_volume': 500000,
+        'min_dollar_volume': 5000000
+    },
+    {
+        'name': 'NASDAQ',
+        'priority': 2,
+        'max_positions': 2,
+        'min_price': 5,
+        'max_price': 300,
+        'min_volume': 300000,
+        'min_dollar_volume': 3000000
+    },
+    {
+        'name': 'LSE',
+        'priority': 3,
+        'max_positions': 1,
+        'min_price': 1,  # In GBP
+        'max_price': 500,
+        'min_volume': 100000,
+        'min_dollar_volume': 2000000
+    },
+    {
+        'name': 'ASX',
+        'priority': 4,
+        'max_positions': 1,
+        'min_price': 0.1,  # In AUD
+        'max_price': 100,
+        'min_volume': 50000,
+        'min_dollar_volume': 1000000
+    }
+]
+
+# Multi-Market Trading Strategy Parameters
+MULTI_MARKET_STRATEGY = {
+    'max_total_positions': 5,  # Maximum total positions across all markets
+    'position_allocation_method': 'proportional',  # How to allocate positions
+    'market_correlation_threshold': 0.7,  # Avoid over-concentration
+    'global_risk_limit_pct': 0.2,  # Maximum portfolio risk
+} 

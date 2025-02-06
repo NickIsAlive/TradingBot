@@ -12,22 +12,51 @@ import ssl
 import certifi
 import requests
 import time
+from typing import List
 
 logger = logging.getLogger(__name__)
 
 class StockScreener:
     def __init__(self, data_client: StockHistoricalDataClient):
         """
-        Initialize the stock screener.
+        Initialize the stock screener with support for multiple markets.
         
         Args:
             data_client: Alpaca historical data client
         """
         self.data_client = data_client
-        self.sp500_symbols = self._get_sp500_symbols()
-        self.optimal_parameters = {}
-        self.last_api_call = 0
-        self.API_CALL_DELAY = 0.2  # 200ms delay between API calls
+        
+        # Define market-specific screening criteria
+        self.market_criteria = {
+            'NYSE': {
+                'min_price': 10,
+                'max_price': 200,
+                'min_volume': 500000,
+                'min_dollar_volume': 5000000,
+                'max_spread_pct': 0.002
+            },
+            'NASDAQ': {
+                'min_price': 5,
+                'max_price': 300,
+                'min_volume': 300000,
+                'min_dollar_volume': 3000000,
+                'max_spread_pct': 0.003
+            },
+            'LSE': {
+                'min_price': 1,  # In GBP
+                'max_price': 500,
+                'min_volume': 100000,
+                'min_dollar_volume': 2000000,
+                'max_spread_pct': 0.005
+            },
+            'ASX': {
+                'min_price': 0.1,  # In AUD
+                'max_price': 100,
+                'min_volume': 50000,
+                'min_dollar_volume': 1000000,
+                'max_spread_pct': 0.01
+            }
+        }
 
     def _get_sp500_symbols(self) -> list:
         """Get S&P 500 symbols using multiple fallback methods."""
@@ -310,56 +339,141 @@ class StockScreener:
         # Otherwise return defaults
         return default_params
 
-    async def get_trading_candidates(self, max_stocks: int = 5) -> list:
+    async def get_trading_candidates(self, 
+                                   max_stocks: int = 5, 
+                                   markets: list = None) -> List[str]:
         """
-        Get a list of stocks suitable for trading.
+        Get trading candidates across multiple markets with advanced allocation.
         
         Args:
-            max_stocks: Maximum number of stocks to return
-            
-        Returns:
-            List of selected stock symbols
-        """
-        candidates = []
-        processed_count = 0
+            max_stocks (int): Maximum number of stocks to return
+            markets (list): List of markets to screen. Defaults to config.MARKETS_TO_TRADE
         
-        try:
-            logger.info(f"Starting to process {len(self.sp500_symbols)} symbols")
+        Returns:
+            List of stock symbols meeting screening criteria
+        """
+        if markets is None:
+            markets = [market['name'] for market in config.MARKETS_TO_TRADE]
+        
+        # Sort markets by priority
+        market_configs = sorted(
+            [m for m in config.MARKETS_TO_TRADE if m['name'] in markets], 
+            key=lambda x: x['priority']
+        )
+        
+        candidates = []
+        total_positions = 0
+        
+        for market_config in market_configs:
+            # Check if we can add more positions
+            if total_positions >= config.MULTI_MARKET_STRATEGY['max_total_positions']:
+                break
             
-            for symbol in self.sp500_symbols:
-                processed_count += 1
-                logger.debug(f"Processing symbol {symbol} ({processed_count}/{len(self.sp500_symbols)})")
+            # Calculate remaining positions for this market
+            remaining_positions = min(
+                market_config['max_positions'], 
+                config.MULTI_MARKET_STRATEGY['max_total_positions'] - total_positions
+            )
+            
+            try:
+                # Screen stocks for this market
+                market_candidates = await self._screen_market_stocks(
+                    market=market_config['name'],
+                    min_price=market_config['min_price'],
+                    max_price=market_config['max_price'],
+                    min_volume=market_config['min_volume'],
+                    min_dollar_volume=market_config['min_dollar_volume']
+                )
                 
-                df = await self.get_historical_data(symbol)
+                # Add market candidates, respecting position limits
+                market_candidates = market_candidates[:remaining_positions]
+                candidates.extend(market_candidates)
                 
-                if df.empty:
-                    logger.debug(f"No historical data available for {symbol}")
-                    continue
+                total_positions += len(market_candidates)
                 
-                metrics = self.calculate_metrics(df)
-                
-                if not metrics:
-                    logger.debug(f"Could not calculate metrics for {symbol}")
-                    continue
-                
-                if self.filter_stocks(metrics):
-                    candidates.append({
-                        'symbol': symbol,
-                        'metrics': metrics
-                    })
-                    logger.info(f"Added {symbol} to candidates with metrics: {metrics}")
-                
-                if len(candidates) >= max_stocks:
-                    logger.info(f"Reached maximum number of candidates ({max_stocks})")
+                # Break if we've reached total position limit
+                if total_positions >= config.MULTI_MARKET_STRATEGY['max_total_positions']:
                     break
             
-            # Sort candidates by volatility (higher volatility first)
-            candidates.sort(key=lambda x: x['metrics']['volatility'], reverse=True)
+            except Exception as e:
+                logger.error(f"Error screening {market_config['name']} stocks: {str(e)}")
+        
+        return candidates
+
+    async def _screen_market_stocks(self, 
+                                  market: str = 'NYSE', 
+                                  min_price: float = 10, 
+                                  max_price: float = 200,
+                                  min_volume: int = 500000,
+                                  min_dollar_volume: float = 5000000,
+                                  max_spread_pct: float = 0.002) -> List[str]:
+        """
+        Screen stocks for a specific market with advanced filtering.
+        
+        Args:
+            market (str): Market to screen stocks from
+            min_price (float): Minimum stock price
+            max_price (float): Maximum stock price
+            min_volume (int): Minimum daily trading volume
+            min_dollar_volume (float): Minimum daily dollar volume
+            max_spread_pct (float): Maximum bid-ask spread percentage
+        
+        Returns:
+            List of stock symbols meeting criteria
+        """
+        try:
+            # Market-specific symbol prefixes
+            market_prefixes = {
+                'NYSE': '',
+                'NASDAQ': '',
+                'LSE': '.L',
+                'ASX': '.AX'
+            }
             
-            selected_symbols = [c['symbol'] for c in candidates]
-            logger.info(f"Selected {len(selected_symbols)} trading candidates: {selected_symbols}")
-            return selected_symbols
+            # Get market-specific stock universe
+            symbols = await self._get_market_symbols(market)
             
+            # Filter and rank stocks
+            filtered_stocks = []
+            for symbol in symbols:
+                try:
+                    # Fetch recent stock data
+                    bars = await self._get_stock_bars(symbol)
+                    
+                    if not bars or bars.empty:
+                        continue
+                    
+                    # Calculate metrics
+                    current_price = bars['close'].iloc[-1]
+                    volume = bars['volume'].iloc[-1]
+                    dollar_volume = current_price * volume
+                    
+                    # Apply screening criteria
+                    if (min_price <= current_price <= max_price and
+                        volume >= min_volume and
+                        dollar_volume >= min_dollar_volume):
+                        
+                        # Additional advanced screening
+                        volatility = self._calculate_volatility(bars)
+                        rsi = self._calculate_rsi(bars)
+                        
+                        # Rank the stock based on multiple factors
+                        score = self._score_stock(
+                            price=current_price,
+                            volume=volume,
+                            volatility=volatility,
+                            rsi=rsi
+                        )
+                        
+                        filtered_stocks.append((symbol, score))
+                
+                except Exception as stock_error:
+                    logger.warning(f"Error processing {symbol}: {str(stock_error)}")
+            
+            # Sort stocks by score and return top candidates
+            filtered_stocks.sort(key=lambda x: x[1], reverse=True)
+            return [stock[0] for stock in filtered_stocks[:10]]
+        
         except Exception as e:
-            logger.error(f"Error getting trading candidates: {str(e)}")
+            logger.error(f"Error screening {market} stocks: {str(e)}")
             return [] 

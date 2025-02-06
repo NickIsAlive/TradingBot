@@ -25,20 +25,98 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def is_market_hours() -> bool:
-    """Check if the US market is currently open."""
-    ny_tz = pytz.timezone('America/New_York')
-    now = datetime.now(ny_tz)
+def get_market_hours(market: str = 'NYSE') -> dict:
+    """
+    Get trading hours for different global markets.
     
-    # Check if it's a weekday
-    if now.weekday() >= 5:  # 5 = Saturday, 6 = Sunday
+    Args:
+        market (str): The market to check. Supports 'NYSE', 'NASDAQ', 'LSE', 'TSX', 'ASX', 'HKEX', 'SSE'
+    
+    Returns:
+        dict: Market trading hours and timezone
+    """
+    market_hours = {
+        'NYSE': {
+            'timezone': 'America/New_York',
+            'open_time': (9, 30),   # 9:30 AM
+            'close_time': (16, 0),  # 4:00 PM
+            'days': range(0, 5)     # Monday to Friday
+        },
+        'NASDAQ': {
+            'timezone': 'America/New_York',
+            'open_time': (9, 30),
+            'close_time': (16, 0),
+            'days': range(0, 5)
+        },
+        'LSE': {  # London Stock Exchange
+            'timezone': 'Europe/London',
+            'open_time': (8, 0),    # 8:00 AM
+            'close_time': (16, 30), # 4:30 PM
+            'days': range(0, 5)
+        },
+        'TSX': {  # Toronto Stock Exchange
+            'timezone': 'America/Toronto',
+            'open_time': (9, 30),
+            'close_time': (16, 0),
+            'days': range(0, 5)
+        },
+        'ASX': {  # Australian Securities Exchange
+            'timezone': 'Australia/Sydney',
+            'open_time': (10, 0),   # 10:00 AM
+            'close_time': (16, 0),  # 4:00 PM
+            'days': range(0, 5)
+        },
+        'HKEX': {  # Hong Kong Stock Exchange
+            'timezone': 'Asia/Hong_Kong',
+            'open_time': (9, 30),   # 9:30 AM
+            'close_time': (16, 0),  # 4:00 PM
+            'days': range(0, 5)
+        },
+        'SSE': {  # Shanghai Stock Exchange
+            'timezone': 'Asia/Shanghai',
+            'open_time': (9, 30),   # 9:30 AM
+            'close_time': (15, 0),  # 3:00 PM
+            'days': range(0, 5)
+        }
+    }
+    
+    return market_hours.get(market.upper(), market_hours['NYSE'])
+
+def is_market_hours(market: str = 'NYSE') -> bool:
+    """
+    Check if the specified market is currently open.
+    
+    Args:
+        market (str): The market to check. Supports multiple global indices.
+    
+    Returns:
+        bool: True if market is open, False otherwise
+    """
+    market_info = get_market_hours(market)
+    
+    # Get the market's timezone
+    market_tz = pytz.timezone(market_info['timezone'])
+    now = datetime.now(market_tz)
+    
+    # Check if it's a trading day
+    if now.weekday() not in market_info['days']:
         return False
     
-    # Check if it's between 9:30 AM and 4:00 PM EST
-    market_start = now.replace(hour=9, minute=30, second=0, microsecond=0)
-    market_end = now.replace(hour=16, minute=0, second=0, microsecond=0)
+    # Create datetime objects for market open and close times
+    market_open = now.replace(
+        hour=market_info['open_time'][0], 
+        minute=market_info['open_time'][1], 
+        second=0, 
+        microsecond=0
+    )
+    market_close = now.replace(
+        hour=market_info['close_time'][0], 
+        minute=market_info['close_time'][1], 
+        second=0, 
+        microsecond=0
+    )
     
-    return market_start <= now <= market_end
+    return market_open <= now <= market_close
 
 async def main():
     """Main function to run the trading bot."""
@@ -65,26 +143,63 @@ async def main():
             try:
                 current_time = datetime.now().timestamp()
                 
-                if is_market_hours():
+                # Check multiple markets dynamically from configuration
+                markets_to_check = [market['name'] for market in config.MARKETS_TO_TRADE]
+                market_open = any(is_market_hours(market) for market in markets_to_check)
+                
+                if market_open:
                     # Update trading symbols periodically
                     if current_time - last_screen_time >= config.SCREEN_INTERVAL:
                         logger.info("Screening for new trading candidates...")
-                        await bot.update_trading_symbols()
+                        
+                        # Get trading candidates across multiple markets
+                        await bot.update_trading_symbols(
+                            markets=markets_to_check,
+                            max_stocks=config.MULTI_MARKET_STRATEGY['max_total_positions']
+                        )
+                        
                         last_screen_time = current_time
                     
                     if bot.trading_symbols:
                         logger.info("Processing trading symbols...")
+                        
+                        # Track market allocation
+                        market_allocation = {}
+                        
                         for symbol in bot.trading_symbols:
                             try:
-                                await bot.process_symbol(symbol)
+                                # Determine market for symbol
+                                symbol_market = bot.get_symbol_market(symbol)
+                                
+                                # Check market allocation limits
+                                if symbol_market not in market_allocation:
+                                    market_allocation[symbol_market] = 0
+                                
+                                market_config = next(
+                                    (m for m in config.MARKETS_TO_TRADE if m['name'] == symbol_market), 
+                                    None
+                                )
+                                
+                                if market_config and market_allocation[symbol_market] < market_config['max_positions']:
+                                    await bot.process_symbol(symbol)
+                                    market_allocation[symbol_market] += 1
+                                else:
+                                    logger.info(f"Skipping {symbol} due to market allocation limits")
+                                
+                                # Global position limit
+                                if sum(market_allocation.values()) >= config.MULTI_MARKET_STRATEGY['max_total_positions']:
+                                    break
+                            
                             except Exception as e:
                                 logger.error(f"Error processing {symbol}: {str(e)}")
                                 continue
+                        
                         logger.info("Finished processing symbols")
+                        logger.info(f"Market Allocation: {market_allocation}")
                     else:
                         logger.warning("No trading symbols available")
                 else:
-                    logger.info("Market is closed. Waiting...")
+                    logger.info("All checked markets are closed. Waiting...")
                 
                 # Wait for the next check interval
                 await asyncio.sleep(config.CHECK_INTERVAL)
