@@ -16,6 +16,8 @@ from screener import StockScreener
 from database import TradingDatabase
 import talib
 from gdelt_sentiment import GDELTClient
+import pytz
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ class TradingBot:
         )
         
         self.technical_analysis = TechnicalAnalysis()
-        self.notifier = TelegramNotifier()
+        self._notifier = None  # Initialize as None
         self.screener = StockScreener(self.data_client)
         self.db = TradingDatabase()
         self.gdelt_client = GDELTClient()  # Initialize GDELT client
@@ -42,23 +44,73 @@ class TradingBot:
         self.position_trackers = {}  # Track position metrics for trailing stops
         self.active_trades = {}  # Track active trade IDs for database updates
         
-        # Initialize Telegram bot
-        self.notifier.set_trading_client(self.trading_client)
+    @property
+    def notifier(self):
+        """Lazy initialization of the Telegram notifier."""
+        if self._notifier is None:
+            self._notifier = TelegramNotifier()
+            self._notifier.set_trading_client(self.trading_client)
+        return self._notifier
         
-    async def start(self):
+    def start(self):
         """Start the Telegram bot."""
         self.notifier.start()
         logger.info("Telegram bot started")
         return self
         
-    async def stop(self):
+    def stop(self):
         """Stop the Telegram bot and clean up resources."""
-        self.notifier.stop()
+        if self._notifier:
+            self._notifier.stop()
+            self._notifier = None
         self.db.close()
         logger.info("Telegram bot stopped and database connection closed")
         return self
-        
-    async def update_trading_symbols(self, 
+
+    def send_notification(self, message: str) -> None:
+        """Send a notification through the Telegram bot."""
+        try:
+            self.notifier.send_message(message)
+        except Exception as e:
+            logger.error(f"Error sending notification: {str(e)}")
+
+    def send_error(self, error_message: str) -> None:
+        """Send an error notification through the Telegram bot."""
+        try:
+            self.notifier.send_error_notification(error_message)
+        except Exception as e:
+            logger.error(f"Error sending error notification: {str(e)}")
+
+    def send_trade_notification(self, symbol: str, action: str, price: float, quantity: float, execution_time: datetime, market_conditions: str, sentiment_score: float) -> None:
+        """Send a trade notification through the Telegram bot."""
+        try:
+            self.notifier.send_trade_notification(
+                symbol=symbol,
+                action=action,
+                price=price,
+                quantity=quantity,
+                execution_time=execution_time,
+                market_conditions=market_conditions,
+                sentiment_score=sentiment_score
+            )
+        except Exception as e:
+            logger.error(f"Error sending trade notification: {str(e)}")
+
+    def send_market_update(self, market_summary: str) -> None:
+        """Send a market update through the Telegram bot."""
+        try:
+            self.notifier.send_market_update(market_summary)
+        except Exception as e:
+            logger.error(f"Error sending market update: {str(e)}")
+
+    def send_account_summary(self) -> None:
+        """Send an account summary through the Telegram bot."""
+        try:
+            self.notifier.send_account_summary()
+        except Exception as e:
+            logger.error(f"Error sending account summary: {str(e)}")
+
+    def update_trading_symbols(self, 
                                    markets: list = None, 
                                    max_stocks: int = 5) -> None:
         """
@@ -74,7 +126,7 @@ class TradingBot:
                 markets = [market['name'] for market in config.MARKETS_TO_TRADE]
             
             # Get trading candidates across specified markets
-            new_symbols = await self.screener.get_trading_candidates(
+            new_symbols = self.screener.get_trading_candidates(
                 max_stocks=max_stocks,
                 markets=markets
             )
@@ -108,7 +160,7 @@ class TradingBot:
                         message += f"Added: {', '.join(added)}\n"
                     if removed:
                         message += f"Removed: {', '.join(removed)}"
-                    await self.notifier.send_message(message)
+                    self.notifier.send_message(message)
         
         except Exception as e:
             logger.error(f"Error updating trading symbols: {str(e)}")
@@ -138,7 +190,7 @@ class TradingBot:
         
         return 'NYSE'  # Default fallback
 
-    async def get_historical_data(self, symbol: str) -> pd.DataFrame:
+    def get_historical_data(self, symbol: str) -> pd.DataFrame:
         """
         Get historical price data for a symbol.
         
@@ -149,7 +201,8 @@ class TradingBot:
             pd.DataFrame: DataFrame with historical price data
         """
         try:
-            end_dt = datetime.now()
+            # Get current time in UTC
+            end_dt = datetime.now(pytz.UTC)
             start_dt = end_dt - timedelta(days=30)  # Get 30 days of data
             
             request = StockBarsRequest(
@@ -378,7 +431,7 @@ class TradingBot:
             logger.error(f"Error adjusting position size for regime: {str(e)}")
             return base_quantity
 
-    async def process_symbol(self, symbol: str) -> None:
+    def process_symbol(self, symbol: str) -> None:
         """
         Process a single symbol for trading opportunities with enhanced analysis.
         
@@ -387,7 +440,7 @@ class TradingBot:
         """
         try:
             # Get historical data
-            df = await self.get_historical_data(symbol)
+            df = self.get_historical_data(symbol)
             if df.empty:
                 return
                 
@@ -435,11 +488,11 @@ class TradingBot:
                 
                 if should_exit:
                     logger.info(f"{exit_reason} triggered for {symbol}")
-                    await self.execute_trade(symbol, 'SELL', position['qty'])
+                    self.execute_trade(symbol, 'SELL', position['qty'])
                     
                     # Record trade exit in database
                     if symbol in self.active_trades:
-                        await self.db.record_trade_exit(
+                        self.db.record_trade_exit(
                             self.active_trades[symbol],
                             current_price,
                             exit_reason
@@ -460,10 +513,10 @@ class TradingBot:
                 if position_size > 0:
                     # Execute buy order
                     logger.info(f"Executing {signal} for {symbol} - Price: ${current_price:.2f}, RSI: {rsi:.1f}, MACD: {macd:.2f}")
-                    await self.execute_trade(symbol, 'BUY', position_size)
+                    self.execute_trade(symbol, 'BUY', position_size)
                     
                     # Record trade entry in database
-                    trade_id = await self.db.record_trade_entry(
+                    trade_id = self.db.record_trade_entry(
                         symbol=symbol,
                         side='BUY',
                         quantity=position_size,
@@ -486,14 +539,14 @@ class TradingBot:
                     )
             
             # Update daily performance metrics
-            await self.db.update_daily_performance()
+            self.db.update_daily_performance()
                 
         except Exception as e:
             error_msg = f"Error processing {symbol}: {str(e)}"
             logger.error(error_msg)
-            await self.notifier.send_error_notification(error_msg)
+            self.notifier.send_error_notification(error_msg)
 
-    async def execute_trade(self, symbol: str, side: str, quantity: float) -> None:
+    def execute_trade(self, symbol: str, side: str, quantity: float) -> None:
         """
         Execute a trade order.
         
@@ -515,7 +568,7 @@ class TradingBot:
             # Wait for order to fill
             filled_order = self.trading_client.get_order(order.id)
             
-            await self.notifier.send_trade_notification(
+            self.notifier.send_trade_notification(
                 symbol=symbol,
                 action=side,
                 price=float(filled_order.filled_avg_price),
@@ -525,7 +578,7 @@ class TradingBot:
         except Exception as e:
             error_msg = f"Error executing {side} order for {symbol}: {str(e)}"
             logger.error(error_msg)
-            await self.notifier.send_error_notification(error_msg)
+            self.notifier.send_error_notification(error_msg)
             raise 
 
     def is_market_favorable(self) -> bool:

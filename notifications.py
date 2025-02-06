@@ -1,21 +1,34 @@
 import logging
-import telegram
+from telegram import Bot, Update
 from telegram.error import TelegramError
 from telegram.ext import Updater, CommandHandler, CallbackContext
-from telegram import Update
 import config
 from datetime import datetime, timedelta
 import pandas as pd
+from queue import Queue
+import pytz
+import time
 
 logger = logging.getLogger(__name__)
 
 class TelegramNotifier:
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(TelegramNotifier, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self):
-        self.bot = telegram.Bot(token=config.TELEGRAM_BOT_TOKEN)
-        self.chat_id = config.TELEGRAM_CHAT_ID
-        self.trading_client = None  # Will be set by TradingBot
-        self.updater = Updater(token=config.TELEGRAM_BOT_TOKEN, use_context=True)
-        self.setup_commands()
+        if not self._initialized:
+            self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
+            self.chat_id = config.TELEGRAM_CHAT_ID
+            self.trading_client = None  # Will be set by TradingBot
+            self.update_queue = Queue()
+            self.updater = None
+            self._initialized = True
+            self._is_running = False
 
     def set_trading_client(self, trading_client):
         """Set the trading client for accessing account and trade information."""
@@ -23,7 +36,12 @@ class TelegramNotifier:
 
     def setup_commands(self):
         """Set up command handlers for the bot."""
+        if not self.updater:
+            logger.error("Updater not initialized")
+            return
+        
         dp = self.updater.dispatcher
+        
         dp.add_handler(CommandHandler("symbols", self.cmd_symbols))
         dp.add_handler(CommandHandler("trades", self.cmd_trades))
         dp.add_handler(CommandHandler("profits", self.cmd_profits))
@@ -33,21 +51,60 @@ class TelegramNotifier:
     def start(self):
         """Start the bot."""
         try:
+            if self._is_running:
+                logger.warning("Bot is already running")
+                return self
+                
+            # Stop any existing updater and wait for cleanup
+            self.stop()
+            
+            # Wait a moment to ensure cleanup is complete
+            time.sleep(1)
+            
+            # Create new updater
+            self.updater = Updater(token=config.TELEGRAM_BOT_TOKEN, use_context=True)
+            
+            # Set up commands
+            self.setup_commands()
+            
+            # Start polling with clean state
             self.updater.start_polling(drop_pending_updates=True)
+            self._is_running = True
             logger.info("Telegram bot updater started")
             return self
         except Exception as e:
             logger.error(f"Failed to start Telegram bot: {str(e)}")
+            self.updater = None
+            self._is_running = False
             raise
 
     def stop(self):
         """Stop the bot."""
         try:
-            self.updater.stop()
-            logger.info("Telegram bot updater stopped")
+            if self.updater and self._is_running:
+                # Stop polling and wait for the updater to stop
+                self.updater.stop()
+                
+                # Wait for the updater to fully stop
+                if hasattr(self.updater, 'is_idle'):
+                    while not self.updater.is_idle:
+                        time.sleep(0.1)
+                
+                # Clear handlers
+                if self.updater.dispatcher:
+                    self.updater.dispatcher.handlers.clear()
+                    self.updater.dispatcher = None
+                
+                # Clear the updater
+                self.updater = None
+                self._is_running = False
+                
+                logger.info("Telegram bot updater stopped and cleaned up")
             return self
         except Exception as e:
             logger.error(f"Failed to stop Telegram bot: {str(e)}")
+            self.updater = None
+            self._is_running = False
             raise
 
     def send_message(self, message: str) -> None:
@@ -66,7 +123,7 @@ class TelegramNotifier:
             f"Price: ${price:.2f}\n"
             f"Quantity: {quantity}\n"
             f"Total Value: ${price * quantity:.2f}\n"
-            f"Execution Time: {execution_time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Execution Time: {execution_time.strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
             f"Market Conditions: {market_conditions}\n"
             f"Sentiment Score: {sentiment_score:.2f}"
         )
@@ -115,7 +172,7 @@ class TelegramNotifier:
             return
 
         try:
-            end = datetime.now()
+            end = datetime.now(pytz.UTC)
             start = end - timedelta(days=30)
             
             activities = self.trading_client.get_activities(
@@ -134,7 +191,7 @@ class TelegramNotifier:
                 symbol = activity.symbol
                 price = float(activity.price)
                 qty = float(activity.qty)
-                timestamp = activity.timestamp.strftime('%Y-%m-%d %H:%M')
+                timestamp = activity.timestamp.strftime('%Y-%m-%d %H:%M %Z')
                 
                 message += (
                     f"Date: {timestamp}\n"
@@ -157,7 +214,7 @@ class TelegramNotifier:
             return
 
         try:
-            end = datetime.now()
+            end = datetime.now(pytz.UTC)
             start = end - timedelta(days=30)
             
             history = self.trading_client.get_portfolio_history(
@@ -232,9 +289,7 @@ class TelegramNotifier:
         self.send_message(message)
 
     def send_account_summary(self) -> None:
-        """
-        Send a comprehensive account summary.
-        """
+        """Send a comprehensive account summary."""
         if not self.trading_client:
             self.send_message("❌ Trading client not initialized")
             return
@@ -248,7 +303,7 @@ class TelegramNotifier:
             buying_power = float(account.buying_power)
 
             message = (
-                f"💼 <b>Account Summary</b>\n\n"
+                f"💼 <b>Daily Account Summary</b>\n\n"
                 f"Equity: ${equity:,.2f}\n"
                 f"Cash: ${cash:,.2f}\n"
                 f"Starting Capital: ${starting_capital:,.2f}\n"
@@ -260,17 +315,9 @@ class TelegramNotifier:
             self.send_message(message)
 
         except Exception as e:
-            self.send_error_notification(f"Error fetching account summary: {str(e)}")
+            self.send_error_notification(f"Error sending account summary: {str(e)}")
 
     def send_market_update(self, market_summary: str) -> None:
-        """
-        Send a market update message.
-        
-        Args:
-            market_summary (str): Summary of current market conditions
-        """
-        message = (
-            f"🌐 <b>Market Update</b>\n\n"
-            f"{market_summary}"
-        )
+        """Send a market update message."""
+        message = f"📊 <b>Market Update</b>\n\n{market_summary}"
         self.send_message(message) 
