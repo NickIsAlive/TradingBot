@@ -112,52 +112,92 @@ class TelegramNotifier:
             raise
 
     def _ensure_single_instance(self):
+        """Ensure only one instance of the bot is running."""
         try:
+            # Check if lock file exists and try to read it
+            if os.path.exists(self._lock_file):
+                try:
+                    with open(self._lock_file, 'r') as f:
+                        content = f.read().strip()
+                        if content:  # If file has content
+                            pid, start_time = content.split(',')
+                            pid = int(pid)
+                            # Check if process is still running
+                            try:
+                                os.kill(pid, 0)  # This will raise OSError if process is not running
+                                # Process exists, check if it's a stale lock
+                                if time.time() - float(start_time) > 300:  # 5 minutes timeout
+                                    logger.warning("Found stale lock, cleaning up...")
+                                    os.unlink(self._lock_file)
+                                else:
+                                    logger.error("Another instance is already running")
+                                    raise SingleInstanceException("Another bot instance is already running")
+                            except OSError:
+                                logger.warning("Found stale lock from dead process, cleaning up...")
+                                os.unlink(self._lock_file)
+                except (ValueError, OSError) as e:
+                    logger.warning(f"Invalid lock file found, cleaning up: {str(e)}")
+                    os.unlink(self._lock_file)
+
+            # Create new lock file
             self._lock_fd = open(self._lock_file, 'w')
             try:
                 fcntl.lockf(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except IOError:
+                self._lock_fd.close()
                 logger.error("Another instance is already running")
                 raise SingleInstanceException("Another bot instance is already running")
             
             # Write PID and start time
             self._lock_fd.write(f"{os.getpid()},{self._start_time}")
             self._lock_fd.flush()
+            os.fsync(self._lock_fd.fileno())  # Ensure content is written to disk
             
             logger.info("Lock acquired, bot instance is running")
             
         except Exception as e:
+            if hasattr(self, '_lock_fd') and self._lock_fd:
+                self._lock_fd.close()
             logger.error(f"Error in single instance check: {str(e)}")
             raise
 
     def _cleanup(self):
+        """Clean up resources when bot is shutting down."""
         try:
             # Signal worker thread to stop
             self._running = False
             
-            if self._lock_fd:
-                if not hasattr(self, '_start_time'):
-                    self._start_time = 0
-                
+            if hasattr(self, '_lock_fd') and self._lock_fd:
                 try:
-                    with open(self._lock_file, 'r') as f:
-                        pid, start_time = f.read().split(',')
-                        if float(start_time) != self._start_time:
-                            logger.warning("Cleaning up stale lock from previous instance")
-                except Exception as e:
-                    logger.error(f"Error reading lock file: {str(e)}")
-                
-                try:
-                    fcntl.lockf(self._lock_fd, fcntl.LOCK_UN)
-                    self._lock_fd.close()
-                    os.unlink(self._lock_file)
+                    # Verify we own the lock before cleaning up
+                    try:
+                        with open(self._lock_file, 'r') as f:
+                            content = f.read().strip()
+                            if content:
+                                pid, start_time = content.split(',')
+                                if int(pid) == os.getpid() and float(start_time) == self._start_time:
+                                    fcntl.lockf(self._lock_fd, fcntl.LOCK_UN)
+                                    self._lock_fd.close()
+                                    os.unlink(self._lock_file)
+                                    logger.info("Lock file cleaned up")
+                                else:
+                                    logger.warning("Lock file owned by different instance, not cleaning up")
+                    except (ValueError, OSError) as e:
+                        logger.warning(f"Error reading lock file during cleanup: {str(e)}")
                 except Exception as e:
                     logger.error(f"Error releasing lock: {str(e)}")
+                finally:
+                    try:
+                        self._lock_fd.close()
+                    except:
+                        pass
             
             # Wait for worker thread with timeout
-            if hasattr(self, 'worker_thread'):
+            if hasattr(self, 'worker_thread') and self.worker_thread.is_alive():
                 try:
                     self.worker_thread.join(timeout=2)
+                    if self.worker_thread.is_alive():
+                        logger.warning("Worker thread did not stop within timeout")
                 except Exception as e:
                     logger.error(f"Error joining worker thread: {str(e)}")
             
