@@ -553,18 +553,26 @@ class TradingBot:
             # Wait for order to fill
             filled_order = self.trading_client.get_order(order.id)
             
+            # Get market conditions and sentiment
+            df = self.get_historical_data(symbol)
+            market_conditions = self.detect_market_regime(df)
+            sentiment_score = 0.5  # Default neutral sentiment
+            
             self.notifier.send_trade_notification(
                 symbol=symbol,
                 action=side,
                 price=float(filled_order.filled_avg_price),
-                quantity=float(filled_order.filled_qty)
+                quantity=float(filled_order.filled_qty),
+                execution_time=datetime.now(pytz.UTC),
+                market_conditions=market_conditions,
+                sentiment_score=sentiment_score
             )
             
         except Exception as e:
             error_msg = f"Error executing {side} order for {symbol}: {str(e)}"
             logger.error(error_msg)
             self.notifier.send_error_notification(error_msg)
-            raise 
+            raise
 
     def is_market_favorable(self) -> bool:
         """

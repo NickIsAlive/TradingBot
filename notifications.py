@@ -51,6 +51,7 @@ class TelegramNotifier:
         await self._initialize_bot()
 
     async def _initialize_bot(self):
+        """Async initialization of the bot."""
         try:
             logger.info("Starting async bot initialization...")
             
@@ -63,6 +64,16 @@ class TelegramNotifier:
             # Initialize bot and application
             self.bot = Bot(token=config.TELEGRAM_BOT_TOKEN)
             self.chat_id = config.TELEGRAM_CHAT_ID
+            
+            # Verify chat ID
+            logger.info(f"Using chat ID: {self.chat_id}")
+            try:
+                await self.bot.get_chat(self.chat_id)
+                logger.info("Successfully verified chat ID")
+            except Exception as e:
+                logger.error(f"Failed to verify chat ID: {str(e)}")
+                raise
+            
             self._ensure_single_instance()
             
             logger.info("Creating Application instance...")
@@ -77,6 +88,19 @@ class TelegramNotifier:
             
             logger.info("Setting up commands...")
             await self.setup_commands()
+            
+            # Test bot functionality
+            try:
+                logger.info("Sending test message...")
+                await self.bot.send_message(
+                    chat_id=self.chat_id,
+                    text="🤖 Trading Bot initialized successfully!\n\nAvailable commands:\n/trades - View recent trades\n/symbols - View current positions\n/profits - View profit/loss\n/balance - View account balance\n/help - Show this help message",
+                    parse_mode='HTML'
+                )
+                logger.info("Test message sent successfully")
+            except Exception as e:
+                logger.error(f"Failed to send test message: {str(e)}")
+                raise
             
             atexit.register(self._cleanup)
             logger.info("Telegram bot initialized successfully")
@@ -184,7 +208,11 @@ class TelegramNotifier:
 
     def send_message(self, message: str) -> None:
         """Add message to queue instead of sending directly."""
-        self.message_queue.put(message)
+        try:
+            logger.info(f"Queueing message: {message[:100]}...")  # Log first 100 chars
+            self.message_queue.put(message)
+        except Exception as e:
+            logger.error(f"Error queueing message: {str(e)}")
 
     def set_trading_client(self, trading_client):
         """Set the trading client for accessing account and trade information."""
@@ -301,7 +329,10 @@ class TelegramNotifier:
 
     def cmd_trades(self, update: Update, context: CallbackContext) -> None:
         """Handle /trades command - Show trades from the last month."""
+        logger.info(f"Received /trades command from user {update.effective_user.id if update and update.effective_user else 'unknown'}")
+        
         if not self.trading_client:
+            logger.error("Trading client not initialized")
             self.send_message("❌ Trading client not initialized")
             return
 
@@ -309,6 +340,7 @@ class TelegramNotifier:
             end = datetime.now(pytz.UTC)
             start = end - timedelta(days=30)
             
+            logger.info("Fetching orders from Alpaca API...")
             # Get filled orders from the last 30 days using list_orders
             orders = self.trading_client.list_orders(
                 status='closed',
@@ -318,9 +350,11 @@ class TelegramNotifier:
             )
 
             if not orders:
+                logger.info("No trades found in the last 30 days")
                 self.send_message("📈 No trades in the last 30 days")
                 return
 
+            logger.info(f"Found {len(orders)} trades")
             message = "📈 <b>Recent Trades (Last 30 Days)</b>\n\n"
             for order in orders:
                 side = order.side
@@ -338,6 +372,7 @@ class TelegramNotifier:
                     f"Total: ${price * qty:.2f}\n\n"
                 )
 
+            logger.info("Sending trade history message")
             self.send_message(message)
 
         except Exception as e:
@@ -470,28 +505,39 @@ class TelegramNotifier:
     async def _process_message(self, message: str) -> None:
         """Process a single message asynchronously."""
         try:
+            logger.info(f"Sending message to Telegram: {message[:100]}...")  # Log first 100 chars
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=message,
                 parse_mode='HTML'
             )
+            logger.info("Message sent successfully")
         except Exception as e:
             logger.error(f"Error sending message: {str(e)}")
 
     def _process_messages(self):
         """Process messages from the queue."""
+        logger.info("Starting message processing worker thread")
         asyncio.set_event_loop(self._event_loop)
         
         while self._running:
             try:
+                logger.debug("Checking message queue...")
                 message = self.message_queue.get(timeout=1.0)  # 1 second timeout
-                self._event_loop.run_until_complete(self._process_message(message))
+                logger.info(f"Processing message from queue: {message[:100]}...")  # Log first 100 chars
+                
+                try:
+                    self._event_loop.run_until_complete(self._process_message(message))
+                    logger.info("Successfully processed message")
+                except Exception as e:
+                    logger.error(f"Failed to process message: {str(e)}")
+                
                 self.message_queue.task_done()
                 time.sleep(0.5)  # Rate limiting
             except Empty:
                 continue  # No messages, continue checking _running flag
             except Exception as e:
-                logger.error(f"Error processing message queue: {str(e)}")
+                logger.error(f"Error in message queue processing: {str(e)}")
                 self.message_queue.task_done()
         
         self._event_loop.close()
