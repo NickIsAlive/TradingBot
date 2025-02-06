@@ -13,7 +13,12 @@ def health_check():
 
 def run_health_check_server():
     """Run the health check server."""
-    app.run(host='0.0.0.0', port=8000)
+    try:
+        app.run(host='0.0.0.0', port=8000)
+    except Exception as e:
+        logger.error(f"Health check server error: {str(e)}")
+        # Don't let health check errors crash the main bot
+        pass
 
 def start_health_check():
     """Start the health check server in a separate thread."""

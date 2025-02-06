@@ -9,7 +9,7 @@ services:
       deploy_on_push: true
       repo: NickIsAlive/TradingBot
     health_check:
-      http_path: /health
+      type: tcp
       port: 8000
       initial_delay_seconds: 30
       period_seconds: 60

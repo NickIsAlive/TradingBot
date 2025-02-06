@@ -49,7 +49,12 @@ ENV PATH="/home/trader/venv/bin:$PATH"
 
 # Create SSL certificates directory
 RUN mkdir -p /home/trader/.postgresql && \
+    mkdir -p /home/trader/logs && \
     chmod 700 /home/trader/.postgresql
+
+# Set log file permissions
+ENV LOG_DIR=/home/trader/logs
+RUN chown -R trader:trader /home/trader/logs
 
 # Upgrade pip and install Python dependencies
 COPY requirements.txt .
@@ -64,6 +69,9 @@ COPY --chown=trader:trader . .
 
 # Expose the health check port
 EXPOSE 8000
+
+# Add this environment variable
+ENV DOCKER_ENV=1
 
 # Run the application
 CMD ["python3", "main.py"]

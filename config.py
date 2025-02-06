@@ -49,7 +49,18 @@ MARKET_DATA_LOOKBACK = '1D'
 # Logging Configuration
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_LEVEL = 'INFO'
-LOG_FILE = 'trading_bot.log'
+
+# Determine if we're running in Docker or local development
+if os.getenv('DOCKER_ENV'):
+    # Docker environment
+    LOG_DIR = '/home/trader/logs'
+else:
+    # Local development - use current directory
+    LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    # Create logs directory if it doesn't exist
+    os.makedirs(LOG_DIR, exist_ok=True)
+
+LOG_FILE = os.path.join(LOG_DIR, 'trading_bot.log')
 
 # Multi-Market Trading Configuration
 MARKETS_TO_TRADE = [
@@ -60,7 +71,10 @@ MARKETS_TO_TRADE = [
         'min_price': 10,
         'max_price': 200,
         'min_volume': 500000,
-        'min_dollar_volume': 5000000
+        'min_dollar_volume': 5000000,
+        'timezone': 'America/New_York',
+        'open_time': '09:30',
+        'close_time': '16:00'
     },
     {
         'name': 'NASDAQ',
@@ -69,7 +83,10 @@ MARKETS_TO_TRADE = [
         'min_price': 5,
         'max_price': 300,
         'min_volume': 300000,
-        'min_dollar_volume': 3000000
+        'min_dollar_volume': 3000000,
+        'timezone': 'America/New_York',
+        'open_time': '09:30',
+        'close_time': '16:00'
     },
     {
         'name': 'LSE',
@@ -78,7 +95,10 @@ MARKETS_TO_TRADE = [
         'min_price': 1,  # In GBP
         'max_price': 500,
         'min_volume': 100000,
-        'min_dollar_volume': 2000000
+        'min_dollar_volume': 2000000,
+        'timezone': 'Europe/London',
+        'open_time': '08:00',
+        'close_time': '16:30'
     },
     {
         'name': 'ASX',
@@ -87,7 +107,10 @@ MARKETS_TO_TRADE = [
         'min_price': 0.1,  # In AUD
         'max_price': 100,
         'min_volume': 50000,
-        'min_dollar_volume': 1000000
+        'min_dollar_volume': 1000000,
+        'timezone': 'Australia/Sydney',
+        'open_time': '10:00',
+        'close_time': '16:00'
     }
 ]
 

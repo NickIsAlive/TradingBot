@@ -3,6 +3,8 @@ from typing import List, Dict
 import logging
 from dotenv import load_dotenv
 import asyncio
+from notifications import TelegramNotifier
+import config
 
 logger = logging.getLogger(__name__)
 
@@ -100,34 +102,20 @@ def validate_alpaca_credentials() -> bool:
         return False
 
 async def validate_telegram_config() -> bool:
-    """
-    Validate Telegram configuration by attempting to send a test message.
-    
-    Returns:
-        bool: True if configuration is valid
-    """
+    """Validate Telegram configuration by attempting to send a test message."""
     try:
-        import telegram
-        
-        bot = telegram.Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
-        chat_id = os.getenv('TELEGRAM_CHAT_ID')
+        # Use the existing TelegramNotifier instance instead of creating a new bot
+        notifier = TelegramNotifier()
         message = "🤖 Trading Bot: Environment validation test message"
         
-        logger.info(f"Attempting to send test message to chat ID: {chat_id}")
-        await bot.send_message(chat_id=chat_id, text=message)
+        logger.info(f"Attempting to send test message to chat ID: {config.TELEGRAM_CHAT_ID}")
+        await notifier.send_queued_message(message)
         logger.info("Successfully sent Telegram test message")
         return True
             
-    except telegram.error.InvalidToken:
-        logger.error("Invalid Telegram bot token. Please check your TELEGRAM_BOT_TOKEN.")
-    except telegram.error.NetworkError:
-        logger.error("Network error while trying to connect to Telegram. Please check your internet connection.")
-    except telegram.error.TelegramError as e:
-        logger.error(f"Telegram API error: {str(e)}")
     except Exception as e:
-        logger.error(f"Unexpected error during Telegram validation: {str(e)}")
-    
-    return False
+        logger.error(f"Error validating Telegram configuration: {str(e)}")
+        return False
 
 async def main():
     """Validate all configurations before bot startup."""

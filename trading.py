@@ -75,7 +75,8 @@ class TradingBot:
     def send_notification(self, message: str) -> None:
         """Send a notification through the Telegram bot."""
         try:
-            self.notifier.send_message(message)
+            # Create task to run coroutine
+            asyncio.create_task(self.notifier.send_message(message))
         except Exception as e:
             logger.error(f"Error sending notification: {str(e)}")
 
@@ -115,16 +116,8 @@ class TradingBot:
         except Exception as e:
             logger.error(f"Error sending account summary: {str(e)}")
 
-    def update_trading_symbols(self, 
-                                   markets: list = None, 
-                                   max_stocks: int = 5) -> None:
-        """
-        Update trading symbols with multi-market support.
-        
-        Args:
-            markets (list): List of markets to screen. Defaults to all configured markets.
-            max_stocks (int): Maximum number of stocks to trade
-        """
+    async def update_trading_symbols(self, markets: list = None, max_stocks: int = 5) -> None:
+        """Update trading symbols with multi-market support."""
         try:
             # If no markets specified, use all configured markets
             if markets is None:
@@ -165,7 +158,7 @@ class TradingBot:
                         message += f"Added: {', '.join(added)}\n"
                     if removed:
                         message += f"Removed: {', '.join(removed)}"
-                    self.notifier.send_message(message)
+                    await self.notifier.send_message(message)
         
         except Exception as e:
             logger.error(f"Error updating trading symbols: {str(e)}")

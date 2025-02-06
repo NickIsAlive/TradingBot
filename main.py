@@ -12,7 +12,7 @@ from trading import TradingBot
 from health_check import start_health_check
 from validate_env import main as validate_config
 import os
-from notifications import SingleInstanceException
+from notifications import SingleInstanceException, TelegramNotifier
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'INFO')
@@ -83,45 +83,36 @@ def get_market_hours(market: str = 'NYSE') -> dict:
     }
     return market_hours.get(market.upper(), market_hours['NYSE'])
 
-def is_market_hours(market: str = 'NYSE') -> bool:
-    """
-    Check if the specified market is currently open.
+def is_market_hours(market: str) -> bool:
+    """Check if the given market is currently open."""
+    # Get current UTC time
+    utc_now = datetime.now(pytz.UTC)
     
-    Args:
-        market (str): The market to check. Supports multiple global indices.
+    # Get market-specific configuration
+    market_config = next((m for m in config.MARKETS_TO_TRADE if m['name'] == market), None)
+    if not market_config:
+        logger.warning(f"No configuration found for market {market}")
+        return False
     
-    Returns:
-        bool: True if market is open, False otherwise
-    """
-    try:
-        market_info = get_market_hours(market)
+    # Get current time in market timezone
+    market_tz = pytz.timezone(market_config['timezone'])
+    market_time = utc_now.astimezone(market_tz)
+    current_time = market_time.time()
+    
+    # Convert string times to time objects
+    market_open = datetime.strptime(market_config['open_time'], '%H:%M').time()
+    market_close = datetime.strptime(market_config['close_time'], '%H:%M').time()
+    
+    # Check if it's a weekday
+    if market_time.weekday() >= 5:  # Saturday = 5, Sunday = 6
+        return False
         
-        # Get the market's timezone
-        market_tz = pytz.timezone(market_info['timezone'])
-        
-        # Get current UTC time and convert to market timezone
-        utc_now = datetime.now(pytz.UTC)
-        market_now = utc_now.astimezone(market_tz)
-        
-        # Check if it's a trading day
-        if market_now.weekday() not in market_info['days']:
-            return False
-        
-        # Create timezone-aware datetime objects for market open and close times
-        today = market_now.date()
-        market_open_time = market_info['open_time']
-        market_close_time = market_info['close_time']
-        
-        # Combine date and time to create timezone-aware datetime objects
-        market_open = market_tz.localize(datetime.combine(today, market_open_time))
-        market_close = market_tz.localize(datetime.combine(today, market_close_time))
-        
-        # Compare using datetime objects instead of time objects
-        return market_open <= market_now <= market_close
-        
-    except Exception as e:
-        logger.error(f"Error checking market hours for {market}: {str(e)}")
-        raise
+    # Check if current time is within market hours
+    if market_open <= market_close:
+        return market_open <= current_time <= market_close
+    else:
+        # Handle markets that cross midnight
+        return current_time >= market_open or current_time <= market_close
 
 async def process_trading_symbols(bot, config):
     """Process trading symbols."""
@@ -153,24 +144,29 @@ async def main():
     """Main function to run the trading bot."""
     logger.info("Starting trading bot...")
     
-    # Validate configuration
-    if not await validate_config():
-        logger.error("Configuration validation failed. Exiting...")
-        sys.exit(1)
+    bot = None
+    notifier = None
     
     try:
         # Start health check server
         start_health_check()
         
-        bot = TradingBot()
-        logger.info("Initializing Telegram notifier...")
-        await bot.notifier.initialize()
+        # Validate configuration first
+        if not await validate_config():
+            logger.error("Configuration validation failed. Exiting...")
+            return
         
-        if not bot.notifier.application:
-            raise RuntimeError("Telegram application failed to initialize")
-            
+        # Initialize and start Telegram bot
+        notifier = TelegramNotifier()
+        await notifier.initialize()
+        
+        # Initialize trading bot with the notifier
+        bot = TradingBot()
+        bot._notifier = notifier
+        
+        # Start both in sequence
+        await notifier.start()
         await bot.start()
-        logger.info("Telegram bot started successfully")
         
         last_screen_time = 0
         
@@ -194,7 +190,7 @@ async def main():
                         logger.info("Screening for new trading candidates...")
                         
                         # Get trading candidates across multiple markets
-                        bot.update_trading_symbols(
+                        await bot.update_trading_symbols(
                             markets=markets_to_check,
                             max_stocks=config.MULTI_MARKET_STRATEGY['max_total_positions']
                         )
@@ -211,19 +207,28 @@ async def main():
                 
                 # Wait for the next check interval
                 await asyncio.sleep(config.CHECK_INTERVAL)
-                
             except Exception as e:
                 logger.error(f"Error in main loop: {str(e)}")
                 await asyncio.sleep(config.CHECK_INTERVAL)
     except SingleInstanceException as e:
         logger.error(f"Cannot start bot: {str(e)}")
-        sys.exit(1)
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
-        sys.exit(1)
     finally:
-        await bot.stop()
-        logger.info("Telegram bot stopped")
+        # Cleanup in reverse order
+        if bot:
+            try:
+                await bot.stop()
+                logger.info("Trading bot stopped")
+            except Exception as e:
+                logger.error(f"Error stopping trading bot: {str(e)}")
+        
+        if notifier:
+            try:
+                await notifier.stop()
+                logger.info("Telegram bot stopped")
+            except Exception as e:
+                logger.error(f"Error stopping Telegram bot: {str(e)}")
 
 if __name__ == "__main__":
     try:
@@ -231,5 +236,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
-        logger.error(f"Fatal error: {str(e)}")
-        sys.exit(1) 
+        logger.error(f"Fatal error: {str(e)}") 
