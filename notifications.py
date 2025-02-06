@@ -61,11 +61,8 @@ class TelegramNotifier(metaclass=SingletonMeta):
         try:
             logger.info("Initializing Telegram bot...")
             
-            # Use the correct token directly
-            bot_token = "7930632186:AAE4jV988Yd6lkY_T3LI2Y8p3w4WtLiYfjE"
-            
-            # Create application instance with the correct token
-            self.application = Application.builder().token(bot_token).build()
+            # Use token from environment variable
+            self.application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
             self.bot = self.application.bot
             
             # Set up command handlers

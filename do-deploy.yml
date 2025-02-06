@@ -29,7 +29,6 @@ services:
       - key: TELEGRAM_BOT_TOKEN
         scope: RUN_TIME
         type: SECRET
-        value: "7930632186:AAE4jV988Yd6lkY_T3LI2Y8p3w4WtLiYfjE"
       - key: TELEGRAM_CHAT_ID
         scope: RUN_TIME
         type: SECRET
