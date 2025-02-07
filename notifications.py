@@ -56,12 +56,22 @@ class TelegramNotifier(metaclass=SingletonMeta):
     async def initialize(self) -> None:
         """Async initialization of the Telegram bot"""
         if self._app_initialized:
+            logger.info("Bot already initialized, skipping...")
             return
 
         try:
             logger.info("Initializing Telegram bot...")
             
-            # Use token from environment variable
+            # Delete any existing webhook first
+            try:
+                webhook_info = await self.bot.get_webhook_info()
+                if webhook_info.url:
+                    await self.bot.delete_webhook(drop_pending_updates=True)
+                    await asyncio.sleep(1)
+            except Exception as e:
+                logger.warning(f"Error checking webhook: {str(e)}")
+
+            # Initialize application with environment variable token
             self.application = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
             self.bot = self.application.bot
             
@@ -70,9 +80,6 @@ class TelegramNotifier(metaclass=SingletonMeta):
             
             # Start message queue processor
             asyncio.create_task(self._message_worker())
-            
-            # Set webhook if needed
-            await self._configure_webhook()
             
             self._app_initialized = True
             logger.info("Telegram bot initialized successfully")
@@ -111,20 +118,22 @@ class TelegramNotifier(metaclass=SingletonMeta):
             return
 
         try:
-            await self.application.initialize()
-            
             # Ensure clean webhook state
-            await self._configure_webhook()
+            if self.bot:
+                await self.bot.delete_webhook(drop_pending_updates=True)
+                await asyncio.sleep(1)
             
-            # Wait a moment before starting polling
-            await asyncio.sleep(1)
+            # Initialize if needed
+            if not self._app_initialized:
+                await self.initialize()
             
             # Start polling in a background task
             self._running = True
             self.polling_task = asyncio.create_task(
                 self.application.updater.start_polling(
                     drop_pending_updates=True,
-                    allowed_updates=['message', 'callback_query']
+                    allowed_updates=['message', 'callback_query'],
+                    close_loop=False
                 )
             )
             logger.info("Telegram bot started successfully with polling")
