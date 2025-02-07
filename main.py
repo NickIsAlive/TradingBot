@@ -12,7 +12,8 @@ from trading import TradingBot
 from health_check import start_health_check
 from validate_env import main as validate_config
 import os
-from notifications import SingleInstanceException, TelegramNotifier
+from notifications import TelegramNotifier
+from market_utils import is_market_hours
 
 # Configure logging
 log_level = os.getenv('LOG_LEVEL', 'INFO')
@@ -83,37 +84,6 @@ def get_market_hours(market: str = 'NYSE') -> dict:
     }
     return market_hours.get(market.upper(), market_hours['NYSE'])
 
-def is_market_hours(market: str) -> bool:
-    """Check if the given market is currently open."""
-    # Get current UTC time
-    utc_now = datetime.now(pytz.UTC)
-    
-    # Get market-specific configuration
-    market_config = next((m for m in config.MARKETS_TO_TRADE if m['name'] == market), None)
-    if not market_config:
-        logger.warning(f"No configuration found for market {market}")
-        return False
-    
-    # Get current time in market timezone
-    market_tz = pytz.timezone(market_config['timezone'])
-    market_time = utc_now.astimezone(market_tz)
-    current_time = market_time.time()
-    
-    # Convert string times to time objects
-    market_open = datetime.strptime(market_config['open_time'], '%H:%M').time()
-    market_close = datetime.strptime(market_config['close_time'], '%H:%M').time()
-    
-    # Check if it's a weekday
-    if market_time.weekday() >= 5:  # Saturday = 5, Sunday = 6
-        return False
-        
-    # Check if current time is within market hours
-    if market_open <= market_close:
-        return market_open <= current_time <= market_close
-    else:
-        # Handle markets that cross midnight
-        return current_time >= market_open or current_time <= market_close
-
 async def process_trading_symbols(bot, config):
     """Process trading symbols."""
     logger.info("Processing trading symbols...")
@@ -159,13 +129,11 @@ async def main():
         # Initialize and start Telegram bot
         notifier = TelegramNotifier()
         await notifier.initialize()
+        await notifier.start()
         
         # Initialize trading bot with the notifier
         bot = TradingBot()
         bot._notifier = notifier
-        
-        # Start both in sequence
-        await notifier.start()
         await bot.start()
         
         last_screen_time = 0
@@ -210,8 +178,6 @@ async def main():
             except Exception as e:
                 logger.error(f"Error in main loop: {str(e)}")
                 await asyncio.sleep(config.CHECK_INTERVAL)
-    except SingleInstanceException as e:
-        logger.error(f"Cannot start bot: {str(e)}")
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
     finally:

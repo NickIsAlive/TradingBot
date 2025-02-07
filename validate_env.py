@@ -104,12 +104,9 @@ def validate_alpaca_credentials() -> bool:
 async def validate_telegram_config() -> bool:
     """Validate Telegram configuration by attempting to send a test message."""
     try:
-        # Use the existing TelegramNotifier instance instead of creating a new bot
         notifier = TelegramNotifier()
-        message = "🤖 Trading Bot: Environment validation test message"
-        
-        logger.info(f"Attempting to send test message to chat ID: {config.TELEGRAM_CHAT_ID}")
-        await notifier.send_queued_message(message)
+        await notifier.initialize()
+        await notifier.send_message("🤖 Trading Bot: Environment validation test message")
         logger.info("Successfully sent Telegram test message")
         return True
             

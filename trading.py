@@ -551,15 +551,22 @@ class TradingBot:
             market_conditions = self.detect_market_regime(df)
             sentiment_score = 0.5  # Default neutral sentiment
             
-            self.notifier.send_trade_notification(
-                symbol=symbol,
-                action=side,
-                price=float(filled_order.filled_avg_price),
-                quantity=float(filled_order.filled_qty),
-                execution_time=datetime.now(pytz.UTC),
-                market_conditions=market_conditions,
-                sentiment_score=sentiment_score
+            # Enhanced trade notification
+            notification_message = (
+                f"🔔 Trade Executed\n\n"
+                f"{'🟢 BUY' if side == 'BUY' else '🔴 SELL'} {symbol}\n"
+                f"Price: ${float(filled_order.filled_avg_price):.2f}\n"
+                f"Quantity: {float(filled_order.filled_qty):.2f} shares\n"
+                f"Total Value: ${float(filled_order.filled_avg_price) * float(filled_order.filled_qty):.2f}\n"
+                f"Market Conditions: {market_conditions}\n"
+                f"Time: {datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}"
             )
+            
+            # Send immediate notification
+            asyncio.create_task(self.notifier.send_message(notification_message))
+            
+            # Also log the trade
+            logger.info(f"Trade executed: {notification_message}")
             
         except Exception as e:
             error_msg = f"Error executing {side} order for {symbol}: {str(e)}"
